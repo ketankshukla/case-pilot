@@ -15,7 +15,7 @@ _fixture_database = Path(_fixture_directory.name) / "demo.sqlite3"
 reset_fixture_database(_fixture_database)
 
 # Vercel generates a binding URL per deployment. Every read still requires the token.
-app = create_app(_fixture_database, allow_binding_hosts=True)
+app = create_app(_fixture_database, allow_binding_hosts=True, sandbox_actions=False)
 
 
 @app.middleware("http")

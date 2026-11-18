@@ -237,6 +237,47 @@ dd { margin: 0; font-size: .9rem; font-weight: 650; }
 .response-draft { margin-top: .75rem; padding: .75rem; background: #f2f7f7; border-radius: .45rem; }
 .response-draft blockquote { margin-top: .35rem; font-size: .875rem; }
 
+.review-state { margin-top: .5rem; }
+.review-approved, .review-completed { background: var(--accent-wash); color: var(--accent); }
+.review-denied, .review-failed, .review-uncertain, .review-invalidated { background: var(--warning-wash); color: var(--warning); }
+.local-review, .review-history { border-top: 1px solid var(--border); margin-top: .9rem; padding-top: .85rem; }
+.local-review { scroll-margin-top: 4.5rem; }
+.review-heading { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
+.review-actions, .review-form { display: grid; gap: .55rem; margin-top: .65rem; }
+.review-actions > .review-form { margin-top: 0; }
+.review-form label, .review-detail summary { font-size: .8125rem; font-weight: 650; }
+.review-form input:not([type="hidden"]), .review-form select, .review-form textarea {
+  min-width: 0;
+  width: 100%;
+  padding: .4rem .5rem;
+  border: 1px solid #b2c5c5;
+  border-radius: .35rem;
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+}
+.review-form button, .review-sign-out {
+  width: fit-content;
+  padding: .4rem .7rem;
+  border: 1px solid #a1b8b6;
+  border-radius: .35rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: 650 .8125rem/1.35 system-ui, sans-serif;
+  cursor: pointer;
+}
+.review-form .review-primary { background: var(--accent); border-color: var(--accent); color: white; }
+.review-form button:disabled { opacity: .52; cursor: not-allowed; }
+.review-detail summary { padding: .2rem 0; cursor: pointer; color: var(--accent); }
+.review-form p.muted { margin-top: 0; }
+.review-error, .review-outcome, .verified-receipt { margin-top: .65rem; padding: .6rem .7rem; border-radius: .4rem; font-size: .8125rem; }
+.review-error { color: var(--warning); background: var(--warning-wash); }
+.review-outcome { background: #f2f7f7; }
+.verified-receipt { background: var(--accent-wash); }
+.verified-receipt dl { margin-top: .5rem; }
+.review-id { font-family: var(--mono); font-size: .75rem; }
+.review-operation { text-transform: capitalize; }
+
 .timeline { border-left: 1px solid #b7ccc8; margin: .95rem 0 0 .3rem; padding-left: .75rem; }
 .timeline li { position: relative; }
 .timeline li::before { content: ""; position: absolute; left: -1rem; top: .3rem; width: .45rem; height: .45rem; border-radius: 50%; background: var(--accent); }

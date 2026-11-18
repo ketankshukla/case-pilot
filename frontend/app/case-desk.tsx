@@ -1,6 +1,8 @@
 import Link from "next/link";
 
-import type { CaseState, CaseSummary, DemoCase, WorkspaceSnapshot } from "./workspace";
+import { LocalReview, remedyLabels, SavedReviewStatus } from "./review-panel";
+import type { ReviewerAccess } from "./reviewer-session";
+import type { CaseState, CaseSummary, DemoCase, ReviewSnapshot, WorkspaceSnapshot } from "./workspace";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const utcDateTime = new Intl.DateTimeFormat("en-US", {
@@ -66,7 +68,7 @@ function Inbox({ cases, selectedId }: { cases: CaseSummary[]; selectedId: string
   );
 }
 
-function CaseWorkspace({ item }: { item: DemoCase }) {
+function CaseWorkspace({ item, hasSavedReview }: { item: DemoCase; hasSavedReview: boolean }) {
   const { order } = item;
   return (
     <section className="panel case-workspace" id="case-workspace" aria-labelledby="case-title" tabIndex={-1}>
@@ -75,7 +77,7 @@ function CaseWorkspace({ item }: { item: DemoCase }) {
           <p className="case-reference">{item.scenario_id} · {item.case_id}</p>
           <h2 id="case-title">{item.title}</h2>
         </div>
-        <CaseStatus state={item.state} />
+        {hasSavedReview ? null : <CaseStatus state={item.state} />}
       </div>
 
       <div className="request">
@@ -137,29 +139,40 @@ function Evidence({ passages, status }: { passages: DemoCase["evidence"]; status
   );
 }
 
-function ActionPreview({ item }: { item: DemoCase }) {
-  const { proposal } = item;
+function ActionPreview({ item, review, access, notice }: {
+  item: DemoCase;
+  review: ReviewSnapshot | null;
+  access: ReviewerAccess;
+  notice?: string;
+}) {
+  const saved = review?.proposal;
+  const proposal = saved?.payload ?? item.proposal;
   return (
     <section className="panel action-panel" aria-labelledby="action-heading">
       <h2 id="action-heading">Exact action preview</h2>
+      {saved ? <div className="review-state"><SavedReviewStatus state={saved.state} /></div> : null}
       {proposal ? (
         <>
           <div className="action-summary">
-            <p>{proposal.remedy === "full_refund" ? "Full refund" : "Partial refund"}</p>
-            <div className="action-value">{currency.format(proposal.amount_cents / 100)} <span>{proposal.currency}</span></div>
+            <p>{remedyLabels[proposal.remedy]}</p>
+            {proposal.amount_cents === null ? null : <div className="action-value">{currency.format(proposal.amount_cents / 100)} <span>{proposal.currency}</span></div>}
           </div>
           <dl className="action-facts">
             <div><dt>Customer</dt><dd>{proposal.customer_id}</dd></div>
             <div><dt>Order</dt><dd>{proposal.order_id} · v{proposal.order_version}</dd></div>
             {proposal.line_id ? <div><dt>Line item</dt><dd>{proposal.line_id}</dd></div> : null}
+            {proposal.quantity === null ? null : <div><dt>Quantity</dt><dd>{proposal.quantity}</dd></div>}
             <div><dt>Proposal</dt><dd>Revision {proposal.revision}</dd></div>
             <div><dt>Evidence</dt><dd className="citations">{proposal.policy_versions.map((policy) => {
               const anchor = evidenceAnchor(policy.source_id, policy.version);
-              return <a key={anchor} href={`#${anchor}`}>{policy.source_id} v{policy.version}</a>;
+              const hasPassage = item.evidence.some(passage => passage.source_id === policy.source_id && passage.version === policy.version);
+              const label = `${policy.source_id} v${policy.version}`;
+              return hasPassage ? <a key={anchor} href={`#${anchor}`}>{label}</a> : <span key={anchor}>{label}</span>;
             })}</dd></div>
           </dl>
-          <p className="action-explanation">{proposal.validation_summary}</p>
-          <p className="preview-note">Replay proposal. Reviewer approval is required for a sandbox write.</p>
+          {proposal.draft ? <div className="response-draft"><blockquote>{proposal.draft}</blockquote></div> : null}
+          <p className={proposal.validation_status === "invalid" ? "review-error" : "action-explanation"}>{proposal.validation_summary}</p>
+          {!saved && access !== "hosted" ? <p className="preview-note">Prepare the replay proposal to save an exact revision for review.</p> : null}
         </>
       ) : (
         <>
@@ -172,11 +185,12 @@ function ActionPreview({ item }: { item: DemoCase }) {
           ) : null}
         </>
       )}
+      {access === "hosted" ? <p className="preview-note">Hosted replay is read-only.</p> : <LocalReview item={item} review={review} access={access} notice={notice} />}
     </section>
   );
 }
 
-function History({ events }: { events: DemoCase["history"] }) {
+function History({ events, reviewEvents }: { events: DemoCase["history"]; reviewEvents?: ReviewSnapshot["events"] }) {
   return (
     <section className="panel" aria-labelledby="history-heading">
       <h2 id="history-heading">Run history</h2>
@@ -196,14 +210,31 @@ function History({ events }: { events: DemoCase["history"] }) {
           ))}
         </ol>
       ) : <p className="muted">Run history is empty.</p>}
+      {reviewEvents?.length ? (
+        <div className="review-history">
+          <h3>Local review audit</h3>
+          <ol className="timeline">
+            {reviewEvents.map((event, index) => (
+              <li key={`${event.at_utc}-${event.operation}-${index}`}>
+                <h3 className="review-operation">{event.operation.replace(/[._-]+/g, " ")}</h3>
+                <div className="timeline-meta"><span>{event.actor}</span><UtcTime value={event.at_utc} /></div>
+                <p>{event.detail}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
     </section>
   );
 }
 
-export function CaseDesk({ workspace, selectedCase, investigation }: {
+export function CaseDesk({ workspace, selectedCase, investigation, review, access, notice }: {
   workspace: WorkspaceSnapshot;
   selectedCase: CaseSummary | undefined;
   investigation: DemoCase | null;
+  review: ReviewSnapshot | null;
+  access: ReviewerAccess;
+  notice?: string;
 }) {
   return (
     <>
@@ -219,12 +250,12 @@ export function CaseDesk({ workspace, selectedCase, investigation }: {
             {investigation ? (
               <>
                 <div className="case-column">
-                  <CaseWorkspace item={investigation} />
+                  <CaseWorkspace item={investigation} hasSavedReview={Boolean(review?.proposal)} />
                   <Evidence passages={investigation.evidence} status={investigation.evidence_status} />
                 </div>
                 <div className="case-column action-column">
-                  <ActionPreview item={investigation} />
-                  <History events={investigation.history} />
+                  <ActionPreview item={investigation} review={review} access={access} notice={notice} />
+                  <History events={investigation.history} reviewEvents={review?.events} />
                 </div>
               </>
             ) : (

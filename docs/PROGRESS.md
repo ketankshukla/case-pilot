@@ -96,3 +96,45 @@ In **SC01**, the server uses the demo session to find O100 v3, retrieves KB01 an
 Open SC01 and follow KB01 v1 from the $80 proposal. Open SC05 and check the order ID prompt. Compare the missing and conflicting SC07 cases. Review the unknown-status draft in SC18.
 
 This slice serves read-only proposals and drafts. The next decision is whether to approve Checkpoint 3 for exact-revision reviewer controls and local sandbox execution.
+
+## 2026-11-18 · Checkpoint 3, reviewer decisions and local execution
+
+The local reviewer can prepare a proposal, approve or deny its exact saved revision, or edit a refund amount to create a new revision. A separate execution request rechecks the current facts, policy and reviewer decision before writing. The hosted desk displays read-only replay.
+
+```mermaid
+flowchart LR
+    Prep[Save proposal] --> Review{Reviewer decision}
+    Review -->|Edit| Prep
+    Review -->|Deny| Denied[Denial recorded]
+    Review -->|Approve| Approved[Exact revision approved]
+    Approved --> Recheck[Recheck in executor]
+    Recheck -->|Stale| Invalidated[Approval invalidated]
+    Recheck -->|Eligible| Write[Sandbox transaction]
+    Write -->|Rejected| Failed[Confirmed failure]
+    Write -->|Committed| Read[Read back original ID]
+    Write -->|Outcome unknown| Uncertain[Uncertain balance reserved]
+    Uncertain --> Read
+    Read -->|Match| Receipt[Verified receipt]
+    Read -->|Unconfirmed| Uncertain
+```
+
+The executor can produce one local refund ledger entry, replacement request or outbox draft. An idempotency key ties retries to the same operation. Reconciliation checks the original operation ID against the stored result. Unconfirmed refunds reserve their amounts.
+
+### Rules and verification
+
+| Scenario | Checkpoint 3 behavior verified |
+| --- | --- |
+| SC01, SC03 | Approval leaves the ledger empty before execution. Execution verifies one $80 entry. Denial records the reviewer's reason. |
+| SC04, SC09 | The invalid $100 line draft needs a corrected revision and fresh approval. Invalid and over-limit cents are rejected. |
+| SC06, SC08 | Reviewer authorization and customer scope are enforced on the backend. A stale approval or racing request cannot overspend. |
+| SC11–SC13 | Mismatched readback cannot produce a receipt. Duplicate requests keep one execution ID. Failed and uncertain outcomes are distinct. |
+| SC17, SC18 | Stock and delivery changes invalidate approvals as appropriate. The verified replacement and delay actions create local records. |
+
+- **Passing** · 29 backend tests and the Next.js production build.
+- **Passing** · Edge exercised local sign-in, approval and execution, denial, edit and reapproval, and original-ID reconciliation after a timed-out write. Cross-origin submissions were rejected and reviewer text rendered as text. The verified receipt survived refresh and the page fit at mobile width.
+- **Host limitation** · Local `vercel build --prod` compiled the app. Windows refused a symlink in Vercel's packaging output.
+- The local fixture database is `stage1-v3`. Review activity and sandbox receipts persist there. The hosted application uses a disposable fixture snapshot and disables reviewer routes. No provider calls occur in replay.
+
+### Review
+
+Follow the [local reviewer walkthrough](../README.md#local-reviewer-walkthrough) to approve SC01, deny SC03, edit SC04, and reconcile SC13. The next decision is whether to proceed to Checkpoint 4 for the audit views, failure coverage, and full Stage 1 evaluation.

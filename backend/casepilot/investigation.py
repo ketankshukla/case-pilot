@@ -15,7 +15,8 @@ RUN_TIMEOUT_SECONDS = 20
 MAX_READ_ATTEMPTS = 6
 CaseId = Annotated[str, StringConstraints(pattern=r"^CP-[0-9]{4}(-[A-Z])?$")]
 EvidenceStatus = Literal["available", "missing", "conflicting", "not_checked"]
-Remedy = Literal["full_refund", "partial_refund"]
+RefundRemedy = Literal["full_refund", "partial_refund"]
+Remedy = Literal["full_refund", "partial_refund", "replacement", "delay_update"]
 CaseState = Literal["investigating", "awaiting_information", "awaiting_review", "escalated"]
 T = TypeVar("T")
 
@@ -34,6 +35,7 @@ class CaseInput(CaseSummary):
     order_id: OrderId | None
     line_id: LineId | None = None
     intent: Intent
+    initial_refund_cents: Annotated[int, Field(gt=0)] | None = None
 
 
 class Fact(BaseModel):
@@ -59,25 +61,30 @@ class PolicyVersion(BaseModel):
 class ReplayCandidate(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    remedy: Remedy
+    remedy: RefundRemedy
     amount_cents: int = Field(gt=0)
     currency: Literal["USD"]
     citations: list[PolicyVersion] = Field(min_length=1, max_length=4)
 
 
 class ProposalPreview(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
     case_id: CaseId
     customer_id: CustomerId
     order_id: OrderId
     line_id: LineId | None
-    revision: Literal[1] = 1
+    revision: Annotated[int, Field(gt=0)] = 1
     remedy: Remedy
-    amount_cents: int
-    currency: Literal["USD"]
-    order_version: int
+    amount_cents: Annotated[int, Field(gt=0)] | None = None
+    currency: Literal["USD"] | None = None
+    quantity: Annotated[int, Field(gt=0)] | None = None
+    draft: Annotated[str, StringConstraints(min_length=1, max_length=4000)] | None = None
+    order_version: Annotated[int, Field(gt=0)]
     policy_ids: list[str]
     policy_versions: list[PolicyVersion]
     validation_summary: str
+    validation_status: Literal["valid", "invalid"] = "valid"
 
 
 class HistoryEvent(BaseModel):
@@ -132,6 +139,7 @@ TOOL_NAMES = {
     "order.lookup": "Order lookup",
     "line.lookup": "Line-item lookup",
     "refunds.lookup": "Refund balance lookup",
+    "replacement.lookup": "Replacement availability",
     "shipment.lookup": "Shipment status lookup",
     "policies.search": "Policy retrieval",
 }
@@ -180,7 +188,7 @@ class InvestigationRun:
         return self.result
 
 
-def replay_refund(remedy: Remedy, amount: int, proofs: list[PolicyVersion]) -> dict:
+def replay_refund(remedy: RefundRemedy, amount: int, proofs: list[PolicyVersion]) -> dict:
     """Generate a repeatable candidate from validated fixture reads without a model provider."""
     return {"remedy": remedy, "amount_cents": amount, "currency": "USD", "citations": proofs}
 
@@ -207,9 +215,28 @@ def propose_refund(run: InvestigationRun, order: OrderFacts, amount: int, eligib
     return run.finish("awaiting_review", summary)
 
 
-def investigate_delay(run: InvestigationRun, reads: DemoReads, order_id: str) -> Investigation:
+def propose_replacement(
+    run: InvestigationRun, reads: DemoReads, order: OrderFacts, line_id: str, eligibility: str,
+) -> Investigation:
+    available = run.read(
+        "replacement.lookup", lambda: reads.replacement_quantity(order.order_id, line_id),
+        lambda quantity: f"Eligible units with stock and compatible remedy history: {quantity}.",
+    )
+    if not available:
+        return run.finish("escalated", "Replacement is unavailable because of stock or an existing remedy.")
+
+    proofs = [PolicyVersion(source_id=passage.source_id, version=passage.version) for passage in run.result.evidence]
+    run.result.proposal = ProposalPreview(
+        case_id=run.case.case_id, customer_id=run.case.customer_id, order_id=order.order_id,
+        line_id=line_id, remedy="replacement", quantity=1, order_version=order.version,
+        policy_ids=[proof.source_id for proof in proofs], policy_versions=proofs, validation_summary=eligibility,
+    )
+    return run.finish("awaiting_review", eligibility)
+
+
+def investigate_delay(run: InvestigationRun, reads: DemoReads, order: OrderFacts) -> Investigation:
     shipment = run.read(
-        "shipment.lookup", lambda: reads.shipment(order_id),
+        "shipment.lookup", lambda: reads.shipment(order.order_id),
         lambda result: f"Shipment status: {result.shipment_status}. Promised date: {result.promised_on or 'unavailable'}.",
     )
     if not shipment.promised_on:
@@ -223,11 +250,20 @@ def investigate_delay(run: InvestigationRun, reads: DemoReads, order_id: str) ->
             "awaiting_information", "The shipment needs a status check before a replacement can be considered.",
             "Confirm the original shipment status. The available record has no verified delivery estimate.",
         )
+    if run.case.intent == "delay_replace":
+        if shipment.shipment_status != "lost" or shipment.delivered_on is not None:
+            return run.finish("escalated", "The original shipment facts do not support a replacement request.")
+        if run.case.line_id is None:
+            return run.finish("awaiting_information", "The replacement item has not been identified.", "Confirm the affected line item.")
+        return propose_replacement(
+            run, reads, order, run.case.line_id,
+            f"The checked shipment is recorded as lost, {days_late} calendar days past the promised date.",
+        )
     run.result.draft = f"The latest shipment record shows {shipment.shipment_status.replace('_', ' ')}."
     return run.finish("investigating", "Prepared a draft using the recorded shipment status.")
 
 
-def investigate_refund(run: InvestigationRun, reads: DemoReads, order: OrderFacts) -> Investigation:
+def investigate_received_order(run: InvestigationRun, reads: DemoReads, order: OrderFacts) -> Investigation:
     case = run.case
     if not order.delivered_on:
         return run.finish("awaiting_information", "Delivery is unverified.", "Confirm the delivery date.")
@@ -238,7 +274,7 @@ def investigate_refund(run: InvestigationRun, reads: DemoReads, order: OrderFact
         return run.finish("escalated", "The order payment is unsettled. Escalate for review.")
 
     line_id = None
-    if case.intent == "damage_refund":
+    if case.intent in ("damage_refund", "damage_replace"):
         if age > 14:
             return run.finish("escalated", "The damaged item is outside the 14-day policy window.")
         if not case.line_id:
@@ -251,6 +287,8 @@ def investigate_refund(run: InvestigationRun, reads: DemoReads, order: OrderFact
         if not line.damage_declaration_complete:
             return run.finish("awaiting_information", "The damage declaration is missing.", "Request the completed damage declaration.")
         eligibility = f"The damage declaration is complete and delivery was {age} calendar days ago."
+        if case.intent == "damage_replace":
+            return propose_replacement(run, reads, order, line_id, eligibility)
     else:
         if age > 30 or order.used is True:
             return run.finish("escalated", "The return falls outside the unused-item or 30-day policy rule.")
@@ -262,6 +300,8 @@ def investigate_refund(run: InvestigationRun, reads: DemoReads, order: OrderFact
         "refunds.lookup", lambda: reads.refunds(order.order_id, line_id),
         lambda result: f"Verified prior refunds: {result.prior_refunded_cents} cents. Pending: {result.pending_cents} cents. Available: {result.remaining_cents} cents.",
     )
+    if balance.replacement_blocks_refund:
+        return run.finish("escalated", "An overlapping replacement was requested or reserved. Escalate for review.")
     if balance.remaining_cents <= 0:
         return run.finish("escalated", "No refundable balance remains. Escalate for review.")
     return propose_refund(run, order, balance.remaining_cents, eligibility)
@@ -286,9 +326,9 @@ def investigate(db: sqlite3.Connection, case: CaseInput, clock_utc: str) -> Inve
             return run.finish("escalated", "Current approved policy evidence is missing for this order. Escalate for review.")
         if evidence.status == "conflicting":
             return run.finish("escalated", "Current approved policies conflict. Escalate for review.")
-        if case.intent == "delay":
-            return investigate_delay(run, reads, order.order_id)
-        return investigate_refund(run, reads, order)
+        if case.intent in ("delay", "delay_replace"):
+            return investigate_delay(run, reads, order)
+        return investigate_received_order(run, reads, order)
     except ReadError as exc:
         if exc.code == "not_found" and run.result.order is None:
             return run.finish("awaiting_information", exc.message, "Check the order ID and confirm it belongs to this account.")

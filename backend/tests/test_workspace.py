@@ -184,7 +184,7 @@ class WorkspacePreviewTests(unittest.TestCase):
             self.assertEqual(client.get(workspace_path).status_code, 401)
             workspace = client.get(workspace_path, headers=self.headers)
             self.assertEqual(workspace.status_code, 200)
-            self.assertEqual(workspace.json()["fixture_version"], "stage1-v2")
+            self.assertEqual(workspace.json()["fixture_version"], "stage1-v3")
             self.assertNotIn("proposal", workspace.json()["cases"][0])
             investigation = client.get("/demo/cases/CP-0100/investigation", headers=self.headers)
             self.assertEqual(investigation.status_code, 200)

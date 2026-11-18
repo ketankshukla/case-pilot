@@ -1,5 +1,5 @@
 {
-  "fixture_version": "stage1-v2",
+  "fixture_version": "stage1-v3",
   "clock_utc": "2026-11-18T12:00:00Z",
   "orders": [
     {
@@ -8,6 +8,27 @@
       "delivered_on": "2026-11-08", "used": false, "return_received": true,
       "promised_on": null, "shipment_status": "delivered",
       "lines": [{"line_id": "A", "paid_cents": 8000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
+      "order_id": "O103", "customer_id": "C100", "version": 1,
+      "paid_cents": 5200, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": "2026-11-06", "used": false, "return_received": true,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 5200, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
+      "order_id": "O113", "customer_id": "C100", "version": 1,
+      "paid_cents": 7600, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": "2026-11-09", "used": false, "return_received": true,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 7600, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
+      "order_id": "O117", "customer_id": "C100", "version": 1,
+      "paid_cents": 4200, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": "2026-11-13", "used": false, "return_received": false,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 4200, "quantity": 1, "damage_declaration_complete": true, "replacement_stock": 2}]
     },
     {
       "order_id": "O200", "customer_id": "C100", "version": 4,
@@ -39,6 +60,13 @@
       "delivered_on": null, "used": null, "return_received": false,
       "promised_on": "2026-11-10", "shipment_status": "unknown",
       "lines": [{"line_id": "A", "paid_cents": 5000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 2}]
+    },
+    {
+      "order_id": "O318", "customer_id": "C100", "version": 1,
+      "paid_cents": 5000, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": null, "used": null, "return_received": false,
+      "promised_on": "2026-11-10", "shipment_status": "lost",
+      "lines": [{"line_id": "A", "paid_cents": 5000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 1}]
     },
     {
       "order_id": "O707", "customer_id": "C100", "version": 1,
@@ -86,6 +114,17 @@
       "request": "Please refund my unused O100 return."
     },
     {
+      "case_id": "CP-0103", "customer_id": "C100", "scenario_id": "SC03",
+      "title": "Eligible refund for a denial exercise", "intent": "return", "order_id": "O103",
+      "request": "Can I get a refund for the unused O103 item I returned?"
+    },
+    {
+      "case_id": "CP-0104", "customer_id": "C100", "scenario_id": "SC04",
+      "title": "Edit an over-limit damage refund", "intent": "damage_refund", "order_id": "O200", "line_id": "A",
+      "initial_refund_cents": 10000,
+      "request": "Line A of O200 arrived damaged. Please refund that line."
+    },
+    {
       "case_id": "CP-0105", "customer_id": "C100", "scenario_id": "SC05",
       "title": "Damaged game with no order ID", "intent": "damage_refund", "order_id": null,
       "request": "My game arrived damaged. Please help."
@@ -116,9 +155,24 @@
       "request": "Can you refund the remaining balance for damaged line A on O209?"
     },
     {
+      "case_id": "CP-0113", "customer_id": "C100", "scenario_id": "SC13",
+      "title": "Refund with a simulated execution outcome", "intent": "return", "order_id": "O113",
+      "request": "My unused O113 return has arrived. Please refund it."
+    },
+    {
+      "case_id": "CP-0117", "customer_id": "C100", "scenario_id": "SC17",
+      "title": "Replacement for a damaged game", "intent": "damage_replace", "order_id": "O117", "line_id": "A",
+      "request": "O117 arrived damaged. I completed the declaration and would like a replacement."
+    },
+    {
       "case_id": "CP-0118", "customer_id": "C100", "scenario_id": "SC18",
       "title": "Late delivery with unknown status", "intent": "delay", "order_id": "O300",
       "request": "My O300 order is late. When will it arrive?"
+    },
+    {
+      "case_id": "CP-0118-B", "customer_id": "C100", "scenario_id": "SC18",
+      "title": "Replacement for a checked lost shipment", "intent": "delay_replace", "order_id": "O318", "line_id": "A",
+      "request": "Please check the O318 shipment and request a replacement if it was lost."
     }
   ]
 }

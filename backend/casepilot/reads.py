@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
 
 
-Intent = Literal["return", "damage_refund", "delay"]
+Intent = Literal["return", "damage_refund", "damage_replace", "delay", "delay_replace"]
 ShipmentStatus = Literal["unknown", "not_shipped", "in_transit", "delivered", "lost", "returned"]
 OrderId = Annotated[str, Field(pattern=r"^O[0-9]{3,10}$")]
 CustomerId = Annotated[str, Field(pattern=r"^C[0-9]{3,10}$")]
@@ -64,6 +64,7 @@ class RefundFacts(ReadModel):
     prior_refunded_cents: Cents
     pending_cents: Cents
     remaining_cents: Cents
+    replacement_blocks_refund: bool = False
 
 
 class ShipmentFacts(ReadModel):
@@ -101,17 +102,27 @@ class RefundEntry(ReadModel):
     status: Literal["verified", "pending", "uncertain"]
 
 
+class ReplacementEntry(ReadModel):
+    line_id: LineId
+    quantity: Annotated[int, Field(gt=0)]
+
+
 LINES = TypeAdapter(list[LineFacts])
 REFUND_ENTRIES = TypeAdapter(list[RefundEntry])
+REPLACEMENT_ENTRIES = TypeAdapter(list[ReplacementEntry])
 SEARCH_QUERIES: dict[Intent, str] = {
     "return": "return OR refund",
     "damage_refund": "damage OR damaged OR refund",
+    "damage_replace": "damage OR damaged OR replacement",
     "delay": "delay OR shipment OR promised",
+    "delay_replace": "delay OR shipment OR promised",
 }
 REQUIRED_RULES: dict[Intent, dict[str, str]] = {
     "return": {"return": "unused_received_30", "accounting": "settled_less_refunds"},
     "damage_refund": {"damage": "damage_declaration_14", "accounting": "settled_less_refunds"},
+    "damage_replace": {"damage": "damage_declaration_14"},
     "delay": {"delay": "shipment_checked_7"},
+    "delay_replace": {"delay": "shipment_checked_7"},
 }
 
 
@@ -164,28 +175,88 @@ class DemoReads:
         _, record = self._load_order(order_id)
         return self._find_line(self._load_lines(record), line_id)
 
-    def refunds(self, order_id: str, line_id: str | None = None) -> RefundFacts:
-        order, record = self._load_order(order_id)
-        lines = self._load_lines(record)
-        line = self._find_line(lines, line_id) if line_id is not None else None
-        ledger_rows = self.db.execute(
-            "SELECT line_id, amount_cents, 'verified' AS status FROM refund_ledger WHERE order_id = ?",
-            (order_id,),
+    def _refund_entries(self, order_id: str, record: dict, lines: list[LineFacts]) -> list[RefundEntry]:
+        rows = self.db.execute(
+            """
+            SELECT ledger.line_id, ledger.amount_cents,
+                CASE WHEN execution.status IN ('executing', 'uncertain') THEN 'uncertain' ELSE 'verified' END AS status
+            FROM refund_ledger AS ledger
+            LEFT JOIN sandbox_executions AS execution USING (execution_id)
+            WHERE ledger.order_id = ?
+            UNION ALL
+            SELECT json_extract(proposal.payload, '$.line_id'),
+                json_extract(proposal.payload, '$.amount_cents'), 'uncertain'
+            FROM sandbox_executions AS execution
+            JOIN sandbox_proposals AS proposal USING (case_id, revision)
+            WHERE execution.status IN ('executing', 'uncertain', 'completed')
+                AND json_extract(proposal.payload, '$.order_id') = ?
+                AND json_extract(proposal.payload, '$.remedy') IN ('full_refund', 'partial_refund')
+                AND NOT EXISTS (
+                    SELECT 1 FROM refund_ledger
+                    WHERE execution_id = execution.execution_id
+                        AND order_id = json_extract(proposal.payload, '$.order_id')
+                        AND line_id IS json_extract(proposal.payload, '$.line_id')
+                        AND amount_cents = json_extract(proposal.payload, '$.amount_cents')
+                )
+            """,
+            (order_id, order_id),
         )
         try:
             entries = REFUND_ENTRIES.validate_python(record.get("refund_entries", []), strict=True)
-            entries.extend(REFUND_ENTRIES.validate_python([dict(row) for row in ledger_rows], strict=True))
+            entries.extend(REFUND_ENTRIES.validate_python([dict(row) for row in rows], strict=True))
         except ValidationError as exc:
             raise ReadError("invalid_data", "The refund balance could not be verified.") from exc
         known_lines = {item.line_id for item in lines}
         if any(entry.line_id is not None and entry.line_id not in known_lines for entry in entries):
             raise ReadError("invalid_data", "The refund balance could not be verified.")
+        return entries
 
+    def _replacement_entries(self, order_id: str, lines: list[LineFacts]) -> list[ReplacementEntry]:
+        rows = self.db.execute(
+            """
+            SELECT line_id, quantity FROM replacement_requests WHERE order_id = ?
+            UNION ALL
+            SELECT json_extract(proposal.payload, '$.line_id'), json_extract(proposal.payload, '$.quantity')
+            FROM sandbox_executions AS execution
+            JOIN sandbox_proposals AS proposal USING (case_id, revision)
+            WHERE execution.status IN ('executing', 'uncertain', 'completed')
+                AND json_extract(proposal.payload, '$.order_id') = ?
+                AND json_extract(proposal.payload, '$.remedy') = 'replacement'
+                AND NOT EXISTS (
+                    SELECT 1 FROM replacement_requests
+                    WHERE execution_id = execution.execution_id
+                        AND order_id = json_extract(proposal.payload, '$.order_id')
+                        AND line_id = json_extract(proposal.payload, '$.line_id')
+                        AND quantity = json_extract(proposal.payload, '$.quantity')
+                )
+            """,
+            (order_id, order_id),
+        )
+        try:
+            entries = REPLACEMENT_ENTRIES.validate_python([dict(row) for row in rows], strict=True)
+        except ValidationError as exc:
+            raise ReadError("invalid_data", "Replacement availability could not be verified.") from exc
+        known_lines = {line.line_id for line in lines}
+        if any(entry.line_id not in known_lines for entry in entries):
+            raise ReadError("invalid_data", "Replacement availability could not be verified.")
+        return entries
+
+    def refunds(self, order_id: str, line_id: str | None = None) -> RefundFacts:
+        order, record = self._load_order(order_id)
+        lines = self._load_lines(record)
+        line = self._find_line(lines, line_id) if line_id is not None else None
+        entries = self._refund_entries(order_id, record, lines)
+        replacements = self._replacement_entries(order_id, lines)
         paid_cents = order.paid_cents if order.settled else 0
         order_prior, order_pending = self._refund_totals(entries)
         order_remaining = max(0, paid_cents - order_prior - order_pending)
         if line is None:
-            return RefundFacts(prior_refunded_cents=order_prior, pending_cents=order_pending, remaining_cents=order_remaining)
+            return RefundFacts(
+                prior_refunded_cents=order_prior,
+                pending_cents=order_pending,
+                remaining_cents=order_remaining,
+                replacement_blocks_refund=bool(replacements),
+            )
 
         # A refund without a line allocation can reduce any line's available balance.
         line_entries = [entry for entry in entries if entry.line_id in (None, line.line_id)]
@@ -195,7 +266,21 @@ class DemoReads:
             prior_refunded_cents=line_prior,
             pending_cents=line_pending,
             remaining_cents=min(order_remaining, max(0, line_paid - line_prior - line_pending)),
+            replacement_blocks_refund=any(entry.line_id == line.line_id for entry in replacements),
         )
+
+    def replacement_quantity(self, order_id: str, line_id: str) -> int:
+        order, record = self._load_order(order_id)
+        lines = self._load_lines(record)
+        line = self._find_line(lines, line_id)
+        entries = self._refund_entries(order_id, record, lines)
+        # Refunds have amount allocations but no unit allocations. Refuse an overlapping remedy
+        # when the prior refund could include this line.
+        if not order.settled or any(entry.line_id in (None, line_id) for entry in entries):
+            return 0
+        replacements = self._replacement_entries(order_id, lines)
+        committed = sum(entry.quantity for entry in replacements if entry.line_id == line_id)
+        return max(0, min(line.quantity, line.replacement_stock) - committed)
 
     @staticmethod
     def _refund_totals(entries: list[RefundEntry]) -> tuple[int, int]:

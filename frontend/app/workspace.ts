@@ -6,9 +6,64 @@ export interface CaseSummary {
   title: string;
 }
 
-interface PolicyVersion {
+export interface PolicyVersion {
   source_id: string;
   version: number;
+}
+
+export type Remedy = "full_refund" | "partial_refund" | "replacement" | "delay_update";
+
+export interface Proposal {
+  revision: number;
+  remedy: Remedy;
+  amount_cents: number | null;
+  quantity: number | null;
+  draft: string | null;
+  validation_status: "valid" | "invalid";
+  currency: "USD" | null;
+  customer_id: string;
+  order_id: string;
+  line_id: string | null;
+  order_version: number;
+  policy_versions: PolicyVersion[];
+  validation_summary: string;
+}
+
+export type ReviewState = "awaiting_review" | "approved" | "denied" | "executing" | "completed" | "failed" | "uncertain" | "invalidated";
+
+export interface VerifiedReceipt {
+  execution_id: string;
+  record_id: string;
+  remedy: Remedy;
+  order_id: string;
+  line_id: string | null;
+  amount_cents: number | null;
+  quantity: number | null;
+  currency: "USD" | null;
+  verified_at: string;
+}
+
+export interface ReviewSnapshot {
+  case_id: string;
+  proposal: {
+    revision: number;
+    state: ReviewState;
+    payload: Proposal;
+    review: {
+      decision: "approved" | "denied";
+      reviewer_id: string;
+      reason: string | null;
+      at_utc: string;
+    } | null;
+    execution: {
+      execution_id: string;
+      status: "executing" | "completed" | "failed" | "uncertain";
+      message: string;
+      receipt: VerifiedReceipt | null;
+    } | null;
+    idempotency_key: string;
+  } | null;
+  events: { at_utc: string; actor: string; operation: string; detail: string }[];
 }
 
 export interface DemoCase extends CaseSummary {
@@ -30,18 +85,7 @@ export interface DemoCase extends CaseSummary {
     approval_status: string;
     excerpt: string;
   })[];
-  proposal: {
-    revision: number;
-    remedy: "full_refund" | "partial_refund";
-    amount_cents: number;
-    currency: "USD";
-    customer_id: string;
-    order_id: string;
-    line_id: string | null;
-    order_version: number;
-    policy_versions: PolicyVersion[];
-    validation_summary: string;
-  } | null;
+  proposal: Proposal | null;
   draft: string | null;
   history: {
     at_utc: string;
@@ -86,4 +130,8 @@ export function readWorkspace() {
 
 export function readInvestigation(caseId: string) {
   return readDemo<DemoCase>(`/demo/cases/${encodeURIComponent(caseId)}/investigation`, 25_000);
+}
+
+export function readReview(caseId: string) {
+  return readDemo<ReviewSnapshot>(`/demo/cases/${encodeURIComponent(caseId)}/review`, 5_000);
 }

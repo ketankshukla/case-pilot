@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from .database import DEMO_DB_PATH, list_cases, load_case, load_metadata, open_read_database
 from .investigation import READ_TIMEOUT_SECONDS, CaseId, CaseInput, CaseSummary, Investigation, bounded_read, investigate
 from .reads import DemoReads, EvidenceResult, LineFacts, LineId, OrderFacts, OrderId, ReadError, ReadErrorCode, RefundFacts, ShipmentFacts
+from .review_api import ReviewCommand, ReviewSnapshot, review_payload, review_response
+from .sandbox import mutate_review, read_review
 
 
 class DemoPersona(BaseModel):
@@ -39,7 +41,7 @@ def read_error(code: ReadErrorCode, message: str) -> HTTPException:
     return HTTPException(READ_ERROR_STATUS[code], ReadErrorDetail(code=code, message=message).model_dump())
 
 
-def create_app(path: Path = DEMO_DB_PATH, *, allow_binding_hosts: bool = False) -> FastAPI:
+def create_app(path: Path = DEMO_DB_PATH, *, allow_binding_hosts: bool = False, sandbox_actions: bool = True) -> FastAPI:
     app = FastAPI(title="CasePilot demo", openapi_url=None)
     if not allow_binding_hosts:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
@@ -56,6 +58,28 @@ def create_app(path: Path = DEMO_DB_PATH, *, allow_binding_hosts: bool = False) 
         return DemoPersona(display_name="Demo support rep", customer_id="C100")
 
     Persona = Annotated[DemoPersona, Depends(demo_persona)]
+
+    if sandbox_actions and not allow_binding_hosts:
+        def reviewer_persona(
+            credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+        ) -> DemoPersona:
+            expected = os.environ.get("CASEPILOT_REVIEWER_TOKEN", "")
+            demo_token = os.environ.get("CASEPILOT_DEMO_TOKEN", "")
+            if len(expected) < 32 or secrets.compare_digest(expected.encode(), demo_token.encode()):
+                raise HTTPException(503, "Configure a separate local reviewer token before reviewing a proposal.")
+            if credentials is None or not secrets.compare_digest(credentials.credentials.encode(), expected.encode()):
+                raise HTTPException(401, "Reviewer session required.", headers={"WWW-Authenticate": "Bearer"})
+            return DemoPersona(display_name="Demo reviewer", customer_id="C100")
+
+        @app.get("/demo/cases/{case_id}/review", response_model=ReviewSnapshot)
+        def saved_review(case_id: CaseId, persona: Persona) -> dict:
+            return review_response(lambda: read_review(path, case_id, persona.customer_id))
+
+        @app.post("/demo/cases/{case_id}/review", response_model=ReviewSnapshot)
+        def review(case_id: CaseId, command: ReviewCommand, reviewer: Annotated[DemoPersona, Depends(reviewer_persona)]) -> dict:
+            return review_response(lambda: mutate_review(
+                path, case_id, reviewer.customer_id, "demo-reviewer-c100", review_payload(command),
+            ))
 
     def with_fixtures(action):
         try:
