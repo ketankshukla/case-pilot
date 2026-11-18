@@ -5,9 +5,9 @@ from datetime import date
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent.parent
-FIXTURE_PATH = ROOT / "fixtures" / "stage1.json"
-DEMO_DB_PATH = ROOT / "backend" / "data" / "demo.sqlite3"
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
+FIXTURE_PATH = BACKEND_ROOT / "fixtures" / "stage1.json"
+DEMO_DB_PATH = BACKEND_ROOT / "data" / "demo.sqlite3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fixture_metadata (

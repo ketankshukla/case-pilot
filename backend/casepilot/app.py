@@ -74,9 +74,10 @@ class WorkspacePreview(BaseModel):
     cases: list[CasePreview]
 
 
-def create_app(path: Path = DEMO_DB_PATH) -> FastAPI:
-    app = FastAPI(title="CasePilot local demo", openapi_url=None)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+def create_app(path: Path = DEMO_DB_PATH, *, allow_binding_hosts: bool = False) -> FastAPI:
+    app = FastAPI(title="CasePilot demo", openapi_url=None)
+    if not allow_binding_hosts:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
     bearer = HTTPBearer(auto_error=False)
 
     def demo_persona(
@@ -84,9 +85,9 @@ def create_app(path: Path = DEMO_DB_PATH) -> FastAPI:
     ) -> DemoPersona:
         expected = os.environ.get("CASEPILOT_DEMO_TOKEN", "")
         if not expected:
-            raise HTTPException(503, "Configure the local demo token before opening the workspace.")
+            raise HTTPException(503, "Configure the demo token before opening the workspace.")
         if credentials is None or not secrets.compare_digest(credentials.credentials.encode(), expected.encode()):
-            raise HTTPException(401, "Local demo session required.", headers={"WWW-Authenticate": "Bearer"})
+            raise HTTPException(401, "Demo session required.", headers={"WWW-Authenticate": "Bearer"})
         return DemoPersona(display_name="Demo support rep", customer_id="C100")
 
     @app.get("/demo/workspace", response_model=WorkspacePreview)

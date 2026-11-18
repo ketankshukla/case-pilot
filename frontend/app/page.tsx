@@ -15,7 +15,7 @@ export default async function Home({ searchParams }: {
         <main className="page-shell" id="main-content" tabIndex={-1}>
           <section className="panel setup-panel">
             <h1>Case desk unavailable</h1>
-            <p>Start the local Python service and check that both services use the same demo token. The project README has the setup commands.</p>
+            <p>Check the Python service and the shared demo token. The project README covers local setup and the protected Vercel preview.</p>
             <a className="retry-link" href="/">Reload case desk</a>
           </section>
         </main>

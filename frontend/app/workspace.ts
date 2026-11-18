@@ -42,14 +42,16 @@ export interface WorkspaceSnapshot {
 
 export async function readWorkspace(): Promise<WorkspaceSnapshot | null> {
   const token = process.env.CASEPILOT_DEMO_TOKEN;
-  if (!token) return null;
+  const backendUrl = process.env.CASEPILOT_BACKEND_URL
+    ?? (process.env.VERCEL ? undefined : "http://127.0.0.1:8000");
+  if (!token || !backendUrl) return null;
 
   try {
-    const response = await fetch("http://127.0.0.1:8000/demo/workspace", {
+    const response = await fetch(new URL("/demo/workspace", backendUrl), {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(5000),
     });
     return response.ok ? ((await response.json()) as WorkspaceSnapshot) : null;
   } catch {

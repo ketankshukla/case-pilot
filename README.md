@@ -12,8 +12,10 @@ Use PowerShell, Git, Node.js 24 LTS with npm, and Python 3.14. The demo runs on 
 Set-Location -LiteralPath 'E:\casepilot'
 python -m venv .venv
 & '.\.venv\Scripts\python.exe' -m pip install -r '.\backend\requirements-dev.txt'
-& '.\.venv\Scripts\python.exe' -m backend.seed --reset
 npm --prefix '.\frontend' ci
+Push-Location -LiteralPath '.\backend'
+& '..\.venv\Scripts\python.exe' -m casepilot.seed --reset
+Pop-Location
 
 $demoToken = & '.\.venv\Scripts\python.exe' -c 'import secrets; print(secrets.token_urlsafe(32))'
 "CASEPILOT_DEMO_TOKEN=$demoToken" | Set-Content -LiteralPath '.\frontend\.env.local' -Encoding ascii
@@ -26,9 +28,9 @@ Generate the token once during setup. The ignored `.env.local` file is shared by
 Backend:
 
 ```powershell
-Set-Location -LiteralPath 'E:\casepilot'
-$env:CASEPILOT_DEMO_TOKEN = (Get-Content -LiteralPath '.\frontend\.env.local' | Where-Object { $_ -like 'CASEPILOT_DEMO_TOKEN=*' }) -replace '^CASEPILOT_DEMO_TOKEN=', ''
-& '.\.venv\Scripts\python.exe' -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+Set-Location -LiteralPath 'E:\casepilot\backend'
+$env:CASEPILOT_DEMO_TOKEN = (Get-Content -LiteralPath '..\frontend\.env.local' | Where-Object { $_ -like 'CASEPILOT_DEMO_TOKEN=*' }) -replace '^CASEPILOT_DEMO_TOKEN=', ''
+& '..\.venv\Scripts\python.exe' -m uvicorn casepilot.app:app --host 127.0.0.1 --port 8000
 ```
 
 Frontend:
@@ -45,11 +47,20 @@ Open [the local support desk](http://127.0.0.1:3000). Start with **Refund for a 
 The reset replaces the local sandbox records and restores the fixture clock to `2026-11-18 12:00 UTC`.
 
 ```powershell
+Set-Location -LiteralPath 'E:\casepilot\backend'
+& '..\.venv\Scripts\python.exe' -m casepilot.seed --reset
+
 Set-Location -LiteralPath 'E:\casepilot'
-& '.\.venv\Scripts\python.exe' -m backend.seed --reset
-& '.\.venv\Scripts\python.exe' -m unittest discover -s backend/tests -v
-npm --prefix '.\frontend' run build
+& '.\scripts\check-before-push.ps1'
 ```
+
+## GitHub and Vercel
+
+Run the pre-push script for every GitHub push. It checks the Python service and builds the Next.js production bundle. Once the Vercel project is linked, also run `vercel build` locally with the matching project settings for Vercel configuration or runtime changes. Push the verified commit to GitHub and check that commit's deployment status in Vercel. [Local Vercel builds](https://vercel.com/docs/cli/build).
+
+The [root Vercel configuration](vercel.json) uses Services (Beta) to build `frontend/` and `backend/` together. When connecting the GitHub repository, use the **Services** framework preset with the repository root as the project root. Enable **Vercel Authentication → All Deployments** for the Stage 1 review and set a fresh `CASEPILOT_DEMO_TOKEN` for the protected environment. Vercel supplies `CASEPILOT_BACKEND_URL` automatically as a private binding from Next.js to FastAPI. [Vercel Services](https://vercel.com/docs/services), [Deployment Protection](https://vercel.com/changelog/protect-production-deployments-for-free-on-every-plan).
+
+The hosted entry point seeds a temporary SQLite snapshot from the bundled fictional records and serves the read-only workspace. The local demo uses its own resettable SQLite file. Hosted approvals, executions and receipts require shared durable storage because Vercel Functions cannot share or retain their local SQLite files across instances. [Vercel filesystem support](https://vercel.com/docs/functions/runtimes#file-system-support).
 
 ## Technology choices
 

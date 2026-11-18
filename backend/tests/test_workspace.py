@@ -7,8 +7,9 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend.app import create_app
-from backend.database import reset_fixture_database
+from casepilot.app import create_app
+from casepilot.database import reset_fixture_database
+from casepilot.preview import app as hosted_preview_app
 
 
 TEST_TOKEN = "fixture-test-token"
@@ -67,6 +68,18 @@ class WorkspacePreviewTests(unittest.TestCase):
         self.assertEqual(facts["Promised for"], "2026-11-10 (8 days ago)")
         self.assertNotIn("Estimated delivery", facts)
         self.assertIsNone(case["proposal"])
+
+    def test_sc01_hosted_preview_uses_packaged_fixtures_and_rejects_writes(self):
+        workspace_path = "/demo/workspace"
+        binding_host = "https://binding.example.test"
+        self.assertEqual(self.client.get(f"{binding_host}{workspace_path}", headers=self.headers).status_code, 400)
+        with TestClient(hosted_preview_app, base_url=binding_host) as client:
+            self.assertEqual(client.get(workspace_path).status_code, 401)
+            workspace = client.get(workspace_path, headers=self.headers)
+            self.assertEqual(workspace.status_code, 200)
+            self.assertEqual(workspace.json()["fixture_version"], "stage1-v1")
+            self.assertEqual(workspace.json()["cases"][0]["proposal"]["amount_cents"], 8000)
+            self.assertEqual(client.post(workspace_path, headers=self.headers).status_code, 405)
 
 
 if __name__ == "__main__":

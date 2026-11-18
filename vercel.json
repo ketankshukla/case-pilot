@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "frontend": {
+      "root": "frontend",
+      "framework": "nextjs",
+      "bindings": [
+        {"type": "service", "service": "backend", "format": "url", "env": "CASEPILOT_BACKEND_URL"}
+      ]
+    },
+    "backend": {
+      "root": "backend",
+      "framework": "fastapi",
+      "entrypoint": "casepilot.preview:app",
+      "functions": {
+        "casepilot/preview.py": {
+          "includeFiles": "fixtures/**",
+          "excludeFiles": "{data,tests}/**"
+        }
+      }
+    }
+  },
+  "rewrites": [
+    {"source": "/(.*)", "destination": {"service": "frontend"}}
+  ]
+}

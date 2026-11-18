@@ -38,3 +38,12 @@ flowchart LR
 The evidence, proposal and run history are predefined. The only API in use is the scoped workspace read. Model calls, policy search, reviewer controls, execution, real audit events and acceptance variants are scheduled for later checkpoints.
 
 Next decision after review: approve Checkpoint 2 with free deterministic replay so its evidence and missing-information paths can be checked without a model account.
+
+## 2026-11-18 · Vercel compatibility and GitHub push workflow
+
+- Added Vercel Services (Beta) configuration for Next.js and FastAPI in one project. Public routing reaches the frontend. A private binding carries the token-authenticated workspace read to the packaged Python service.
+- The hosted checkpoint serves a read-only snapshot seeded on startup from the same fictional records. The local demo uses a resettable SQLite file. Hosted writes and reconciled receipts require shared durable storage and a separate review.
+- Added the required pre-push script and recorded GitHub as the deployment trigger in `AGENTS.md`.
+- **Passing** · Five backend tests and the Next.js production build. The hosted-entry test checks the packaged seed, bearer authentication, and rejection of writes.
+- **Passing** · `vercel dev --local` loaded SC01 and its $80 proposal through the service binding. A request through the frontend URL to `/demo/workspace` returned 404.
+- **Pending** · Vercel account inspection found no project connected to the GitHub repository. `vercel build` reported that linked project settings were required. The Git-triggered cloud build is pending that connection. See the [README](../README.md#github-and-vercel) for the Services preset and protection settings.
