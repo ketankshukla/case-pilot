@@ -1,0 +1,74 @@
+{
+  "fixture_version": "stage1-v1",
+  "clock_utc": "2026-11-18T12:00:00Z",
+  "orders": [
+    {
+      "order_id": "O100", "customer_id": "C100", "version": 3,
+      "paid_cents": 8000, "currency": "USD", "settled": true,
+      "delivered_on": "2026-11-08", "used": false, "return_received": true,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 8000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
+      "order_id": "O200", "customer_id": "C100", "version": 4,
+      "paid_cents": 10000, "currency": "USD", "settled": true,
+      "delivered_on": "2026-11-12", "used": false, "return_received": false,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [
+        {"line_id": "A", "paid_cents": 4000, "quantity": 1, "damage_declaration_complete": true, "replacement_stock": 2},
+        {"line_id": "B", "paid_cents": 6000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}
+      ]
+    },
+    {
+      "order_id": "O300", "customer_id": "C100", "version": 1,
+      "paid_cents": 5000, "currency": "USD", "settled": true,
+      "delivered_on": null, "used": null, "return_received": false,
+      "promised_on": "2026-11-10", "shipment_status": "unknown",
+      "lines": [{"line_id": "A", "paid_cents": 5000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 2}]
+    },
+    {
+      "order_id": "O900", "customer_id": "C200", "version": 1,
+      "paid_cents": 6500, "currency": "USD", "settled": true,
+      "delivered_on": "2026-11-13", "used": false, "return_received": true,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 6500, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    }
+  ],
+  "policies": [
+    {"source_id": "KB01", "title": "Return policy", "version": 1, "effective_date": "2026-01-01", "approval_status": "approved", "region": "US", "product": "board_games", "excerpt": "Unused orders qualify for a return through calendar day 30 after delivery, inclusive. A refund requires a recorded receipt of the return. Day 31 is outside the window. Escalate used items for review."},
+    {"source_id": "KB02", "title": "Damage policy", "version": 1, "effective_date": "2026-01-01", "approval_status": "approved", "region": "US", "product": "board_games", "excerpt": "Within 14 days after delivery, a damaged line with a completed damage declaration can receive a replacement or a refund up to its net paid amount. Apply one remedy per eligible amount or unit."},
+    {"source_id": "KB03", "title": "Delay policy", "version": 1, "effective_date": "2026-01-01", "approval_status": "approved", "region": "US", "product": "board_games", "excerpt": "At least seven calendar days after the promised date, draft a status update using verified facts. Check the original shipment before proposing a replacement. An unknown status gives no new delivery date. A shipment change invalidates a conflicting proposal."},
+    {"source_id": "KB04", "title": "Refund accounting", "version": 1, "effective_date": "2026-01-01", "approval_status": "approved", "region": "US", "product": "board_games", "excerpt": "At both order and line level, subtract verified prior refunds and pending reservations from the settled paid amount. Pending and uncertain operations reserve their amounts. A refund requires eligibility, settlement and reviewer approval."},
+    {"source_id": "KB05", "title": "Evidence applicability", "version": 1, "effective_date": "2026-01-01", "approval_status": "approved", "region": "US", "product": "board_games", "excerpt": "Use current approved policies that match the product and region. Missing or conflicting evidence requires escalation. A confidence estimate cannot override an eligibility check."}
+  ],
+  "cases": [
+    {
+      "case_id": "CP-0100", "customer_id": "C100", "scenario_id": "SC01",
+      "title": "Refund for a received return", "state": "awaiting_review", "order_id": "O100",
+      "request": "Please refund my unused O100 return.", "missing_information": [],
+      "evidence": [["KB01", 1], ["KB04", 1]],
+      "proposal": {"revision": 1, "remedy": "full_refund", "amount_cents": 8000, "currency": "USD", "order_version": 3, "policy_ids": ["KB01", "KB04"], "validation_summary": "Fixture preview: the order was delivered 10 calendar days ago, the unused return was received, and $80.00 remains on the settled order."},
+      "history": [
+        {"at_utc": "2026-11-18T11:56:00Z", "title": "Request recorded", "detail": "The customer requested a refund for O100."},
+        {"at_utc": "2026-11-18T11:57:00Z", "title": "Order facts loaded", "detail": "Fixture O100 v3 shows an unused item and a received return."},
+        {"at_utc": "2026-11-18T11:58:00Z", "title": "Sample proposal prepared", "detail": "Revision 1 references KB01 v1 and KB04 v1. Ledger entries for O100: 0."}
+      ]
+    },
+    {
+      "case_id": "CP-0105", "customer_id": "C100", "scenario_id": "SC05",
+      "title": "Damaged game with no order ID", "state": "awaiting_information", "order_id": null,
+      "request": "My game arrived damaged. Please help.",
+      "missing_information": ["Ask for the order ID.", "Confirm the affected item and request a completed damage declaration."],
+      "evidence": [["KB02", 1]], "proposal": null,
+      "history": [{"at_utc": "2026-11-18T11:59:00Z", "title": "Clarification needed", "detail": "The request did not identify an order. No order was selected."}]
+    },
+    {
+      "case_id": "CP-0118", "customer_id": "C100", "scenario_id": "SC18",
+      "title": "Late delivery with unknown status", "state": "investigating", "order_id": "O300",
+      "request": "My O300 order is late. When will it arrive?",
+      "missing_information": ["Confirm the status of the original shipment. The fixture has no verified delivery estimate."],
+      "evidence": [["KB03", 1]], "proposal": null,
+      "history": [{"at_utc": "2026-11-18T12:00:00Z", "title": "Shipment status unknown", "detail": "O300 is eight calendar days past its promised date. No new delivery estimate is available."}]
+    }
+  ]
+}
