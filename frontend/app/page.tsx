@@ -1,5 +1,5 @@
 import { CaseDesk, DeskHeader } from "./case-desk";
-import { readWorkspace } from "./workspace";
+import { readInvestigation, readWorkspace } from "./workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +23,10 @@ export default async function Home({ searchParams }: {
     );
   }
 
-  const currentCase = workspace.cases.find((item) => item.case_id === params.case)
+  const selectedCase = workspace.cases.find((item) => item.case_id === params.case)
     ?? workspace.cases.find((item) => item.scenario_id === "SC01")
     ?? workspace.cases[0];
+  const investigation = selectedCase ? await readInvestigation(selectedCase.case_id) : null;
 
-  return <CaseDesk workspace={workspace} currentCase={currentCase} />;
+  return <CaseDesk workspace={workspace} selectedCase={selectedCase} investigation={investigation} />;
 }

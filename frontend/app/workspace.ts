@@ -1,11 +1,20 @@
-export type CaseState = "investigating" | "awaiting_information" | "awaiting_review";
+export type CaseState = "investigating" | "awaiting_information" | "awaiting_review" | "escalated";
 
-export interface DemoCase {
+export interface CaseSummary {
   case_id: string;
   scenario_id: string;
   title: string;
+}
+
+interface PolicyVersion {
+  source_id: string;
+  version: number;
+}
+
+export interface DemoCase extends CaseSummary {
   state: CaseState;
   request: string;
+  decision_summary: string;
   order: {
     order_id: string;
     version: number;
@@ -14,47 +23,67 @@ export interface DemoCase {
     facts: { label: string; value: string }[];
   } | null;
   missing_information: string[];
-  evidence: {
-    source_id: string;
+  evidence_status: "available" | "missing" | "conflicting" | "not_checked";
+  evidence: (PolicyVersion & {
     title: string;
-    version: number;
     effective_date: string;
+    approval_status: string;
     excerpt: string;
-  }[];
+  })[];
   proposal: {
     revision: number;
-    remedy: "full_refund";
+    remedy: "full_refund" | "partial_refund";
     amount_cents: number;
     currency: "USD";
+    customer_id: string;
+    order_id: string;
+    line_id: string | null;
     order_version: number;
-    policy_ids: string[];
+    policy_versions: PolicyVersion[];
     validation_summary: string;
   } | null;
-  history: { at_utc: string; title: string; detail: string }[];
+  draft: string | null;
+  history: {
+    at_utc: string;
+    title: string;
+    detail: string;
+    operation: string;
+    status: "ok" | "paused" | "error";
+    attempt: number;
+    latency_ms: number | null;
+  }[];
 }
 
 export interface WorkspaceSnapshot {
   fixture_version: string;
   clock_utc: string;
   persona: { display_name: string; customer_id: string };
-  cases: DemoCase[];
+  cases: CaseSummary[];
 }
 
-export async function readWorkspace(): Promise<WorkspaceSnapshot | null> {
+async function readDemo<T>(path: string, timeoutMs: number): Promise<T | null> {
   const token = process.env.CASEPILOT_DEMO_TOKEN;
   const backendUrl = process.env.CASEPILOT_BACKEND_URL
     ?? (process.env.VERCEL ? undefined : "http://127.0.0.1:8000");
   if (!token || !backendUrl) return null;
 
   try {
-    const response = await fetch(new URL("/demo/workspace", backendUrl), {
+    const response = await fetch(new URL(path, backendUrl), {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
-    return response.ok ? ((await response.json()) as WorkspaceSnapshot) : null;
+    return response.ok ? ((await response.json()) as T) : null;
   } catch {
     return null;
   }
+}
+
+export function readWorkspace() {
+  return readDemo<WorkspaceSnapshot>("/demo/workspace", 5_000);
+}
+
+export function readInvestigation(caseId: string) {
+  return readDemo<DemoCase>(`/demo/cases/${encodeURIComponent(caseId)}/investigation`, 25_000);
 }

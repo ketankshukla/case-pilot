@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import type { CaseState, DemoCase, WorkspaceSnapshot } from "./workspace";
+import type { CaseState, CaseSummary, DemoCase, WorkspaceSnapshot } from "./workspace";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const utcDateTime = new Intl.DateTimeFormat("en-US", {
@@ -12,6 +12,12 @@ const statusLabels: Record<CaseState, string> = {
   investigating: "Investigating",
   awaiting_information: "Awaiting information",
   awaiting_review: "Awaiting review",
+  escalated: "Escalated for review",
+};
+const runStatusLabels: Record<DemoCase["history"][number]["status"], string> = {
+  ok: "Succeeded",
+  paused: "Paused",
+  error: "Error",
 };
 
 function UtcTime({ value }: { value: string }) {
@@ -29,17 +35,18 @@ export function DeskHeader({ persona }: { persona?: WorkspaceSnapshot["persona"]
         <div className="brand"><span className="brand-icon" aria-hidden="true" />CasePilot</div>
         <div className="topbar-meta">
           {persona ? <span className="persona">{persona.display_name} <span>· {persona.customer_id}</span></span> : null}
-          <span className="mode">Demo · Fixtures</span>
+          <span className="mode">Demo · Replay</span>
         </div>
       </div>
     </header>
   );
 }
 
-function Inbox({ cases, selectedId }: { cases: DemoCase[]; selectedId: string }) {
+function Inbox({ cases, selectedId }: { cases: CaseSummary[]; selectedId: string }) {
   return (
     <nav className="panel inbox" aria-labelledby="inbox-heading">
       <h2 id="inbox-heading">Case inbox</h2>
+      <p className="inbox-hint">Select a case to replay its investigation.</p>
       <ul className="case-list">
         {cases.map((item) => (
           <li key={item.case_id}>
@@ -51,7 +58,6 @@ function Inbox({ cases, selectedId }: { cases: DemoCase[]; selectedId: string })
             >
               <span className="case-reference">{item.scenario_id} · {item.case_id}</span>
               <span className="case-title">{item.title}</span>
-              <CaseStatus state={item.state} />
             </Link>
           </li>
         ))}
@@ -85,7 +91,7 @@ function CaseWorkspace({ item }: { item: DemoCase }) {
           <div><dt>Paid total</dt><dd>{currency.format(order.paid_cents / 100)} {order.currency}</dd></div>
           {order.facts.map(({ label, value }) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
         </dl>
-      ) : <p className="muted">Order details are pending an order ID.</p>}
+      ) : <p className="muted">Order facts are unavailable for this run.</p>}
 
       {item.missing_information.length ? (
         <div className="missing-info">
@@ -97,21 +103,36 @@ function CaseWorkspace({ item }: { item: DemoCase }) {
   );
 }
 
-function Evidence({ passages }: { passages: DemoCase["evidence"] }) {
+function evidenceAnchor(sourceId: string, version: number) {
+  return `evidence-${sourceId}-v${version}`;
+}
+
+function Evidence({ passages, status }: { passages: DemoCase["evidence"]; status: DemoCase["evidence_status"] }) {
+  const statusMessage = {
+    available: null,
+    missing: "This case is missing current approved policy evidence.",
+    conflicting: "Current approved passages disagree. The relevant excerpts are shown for human review.",
+    not_checked: "Policy retrieval is pending.",
+  }[status];
+
   return (
     <section className="panel" aria-labelledby="evidence-heading">
       <h2 id="evidence-heading">Policy evidence</h2>
+      {statusMessage ? <p className="muted">{statusMessage}</p> : null}
       {passages.length ? (
         <ul className="evidence-list">
-          {passages.map((passage) => (
-            <li className="evidence-item" id={`evidence-${passage.source_id}`} key={passage.source_id} tabIndex={-1}>
-              <h3>{passage.title}</h3>
-              <p className="evidence-meta">{passage.source_id} · v{passage.version} · Effective <time dateTime={passage.effective_date}>{passage.effective_date}</time></p>
-              <blockquote>{passage.excerpt}</blockquote>
-            </li>
-          ))}
+          {passages.map((passage) => {
+            const anchor = evidenceAnchor(passage.source_id, passage.version);
+            return (
+              <li className="evidence-item" id={anchor} key={anchor} tabIndex={-1}>
+                <h3>{passage.title}</h3>
+                <p className="evidence-meta">{passage.source_id} · v{passage.version} · Effective <time dateTime={passage.effective_date}>{passage.effective_date}</time> · {passage.approval_status}</p>
+                <blockquote>{passage.excerpt}</blockquote>
+              </li>
+            );
+          })}
         </ul>
-      ) : <p className="muted">No policy excerpts are shown for this case.</p>}
+      ) : null}
     </section>
   );
 }
@@ -124,20 +145,33 @@ function ActionPreview({ item }: { item: DemoCase }) {
       {proposal ? (
         <>
           <div className="action-summary">
-            <p>Full refund</p>
+            <p>{proposal.remedy === "full_refund" ? "Full refund" : "Partial refund"}</p>
             <div className="action-value">{currency.format(proposal.amount_cents / 100)} <span>{proposal.currency}</span></div>
           </div>
           <dl className="action-facts">
-            <div><dt>Order</dt><dd>{item.order?.order_id} · v{proposal.order_version}</dd></div>
+            <div><dt>Customer</dt><dd>{proposal.customer_id}</dd></div>
+            <div><dt>Order</dt><dd>{proposal.order_id} · v{proposal.order_version}</dd></div>
+            {proposal.line_id ? <div><dt>Line item</dt><dd>{proposal.line_id}</dd></div> : null}
             <div><dt>Proposal</dt><dd>Revision {proposal.revision}</dd></div>
-            <div><dt>Evidence</dt><dd className="citations">{proposal.policy_ids.map((source) => (
-              <a key={source} href={`#evidence-${source}`}>{source}</a>
-            ))}</dd></div>
+            <div><dt>Evidence</dt><dd className="citations">{proposal.policy_versions.map((policy) => {
+              const anchor = evidenceAnchor(policy.source_id, policy.version);
+              return <a key={anchor} href={`#${anchor}`}>{policy.source_id} v{policy.version}</a>;
+            })}</dd></div>
           </dl>
           <p className="action-explanation">{proposal.validation_summary}</p>
-          <p className="preview-note">Fixture proposal. No action was taken.</p>
+          <p className="preview-note">Replay proposal. Reviewer approval is required for a sandbox write.</p>
         </>
-      ) : <p className="muted">No action is proposed.</p>}
+      ) : (
+        <>
+          <p className="muted">{item.decision_summary}</p>
+          {item.draft ? (
+            <div className="response-draft">
+              <h3>Customer update draft</h3>
+              <blockquote>{item.draft}</blockquote>
+            </div>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }
@@ -149,21 +183,27 @@ function History({ events }: { events: DemoCase["history"] }) {
       {events.length ? (
         <ol className="timeline">
           {events.map((event) => (
-            <li key={`${event.at_utc}-${event.title}`}>
+            <li key={`${event.at_utc}-${event.operation}-${event.attempt}-${event.title}`} data-status={event.status}>
               <h3>{event.title}</h3>
-              <UtcTime value={event.at_utc} />
+              <div className="timeline-meta">
+                <span>{runStatusLabels[event.status]}</span>
+                {event.attempt > 1 ? <span>Attempt {event.attempt}</span> : null}
+                {event.latency_ms !== null ? <span>{event.latency_ms} ms</span> : null}
+                <UtcTime value={event.at_utc} />
+              </div>
               <p>{event.detail}</p>
             </li>
           ))}
         </ol>
-      ) : <p className="muted">No fixture events to display.</p>}
+      ) : <p className="muted">Run history is empty.</p>}
     </section>
   );
 }
 
-export function CaseDesk({ workspace, currentCase }: {
+export function CaseDesk({ workspace, selectedCase, investigation }: {
   workspace: WorkspaceSnapshot;
-  currentCase: DemoCase | undefined;
+  selectedCase: CaseSummary | undefined;
+  investigation: DemoCase | null;
 }) {
   return (
     <>
@@ -173,17 +213,26 @@ export function CaseDesk({ workspace, currentCase }: {
           <h1>Support desk</h1>
           <p>Fixture clock <UtcTime value={workspace.clock_utc} /></p>
         </div>
-        {currentCase ? (
+        {selectedCase ? (
           <div className="desk-grid">
-            <Inbox cases={workspace.cases} selectedId={currentCase.case_id} />
-            <div className="case-column">
-              <CaseWorkspace item={currentCase} />
-              <Evidence passages={currentCase.evidence} />
-            </div>
-            <div className="case-column action-column">
-              <ActionPreview item={currentCase} />
-              <History events={currentCase.history} />
-            </div>
+            <Inbox cases={workspace.cases} selectedId={selectedCase.case_id} />
+            {investigation ? (
+              <>
+                <div className="case-column">
+                  <CaseWorkspace item={investigation} />
+                  <Evidence passages={investigation.evidence} status={investigation.evidence_status} />
+                </div>
+                <div className="case-column action-column">
+                  <ActionPreview item={investigation} />
+                  <History events={investigation.history} />
+                </div>
+              </>
+            ) : (
+              <section className="panel case-workspace" id="case-workspace" tabIndex={-1}>
+                <h2>Investigation unavailable</h2>
+                <p className="muted">Reload the page to retry this case or select another case from the inbox.</p>
+              </section>
+            )}
           </div>
         ) : <p className="panel">No cases are available in this demo workspace.</p>}
       </main>

@@ -1,6 +1,7 @@
 import json
 import sqlite3
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from datetime import date
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_PATH = BACKEND_ROOT / "fixtures" / "stage1.json"
 DEMO_DB_PATH = BACKEND_ROOT / "data" / "demo.sqlite3"
+FIXTURE_VERSION = "stage1-v2"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fixture_metadata (
@@ -26,6 +28,12 @@ CREATE TABLE IF NOT EXISTS policies (
     record TEXT NOT NULL,
     PRIMARY KEY (source_id, version)
 );
+CREATE VIRTUAL TABLE IF NOT EXISTS policy_passages USING fts5(
+    source_id UNINDEXED,
+    version UNINDEXED,
+    title,
+    excerpt
+);
 CREATE TABLE IF NOT EXISTS cases (
     case_id TEXT PRIMARY KEY,
     customer_id TEXT NOT NULL,
@@ -36,7 +44,8 @@ CREATE TABLE IF NOT EXISTS cases (
 CREATE TABLE IF NOT EXISTS refund_ledger (
     execution_id TEXT PRIMARY KEY,
     order_id TEXT NOT NULL REFERENCES orders (order_id),
-    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0)
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    line_id TEXT
 );
 """
 
@@ -50,9 +59,13 @@ def reset_fixture_database(path: Path = DEMO_DB_PATH) -> dict:
         db.executescript(SCHEMA)
         db.execute("BEGIN IMMEDIATE")
         with db:
+            ledger_columns = {column[1] for column in db.execute("PRAGMA table_info(refund_ledger)")}
+            if "line_id" not in ledger_columns:
+                db.execute("ALTER TABLE refund_ledger ADD COLUMN line_id TEXT")
             db.execute("DELETE FROM refund_ledger")
             db.execute("DELETE FROM cases")
             db.execute("DELETE FROM orders")
+            db.execute("DELETE FROM policy_passages")
             db.execute("DELETE FROM policies")
             db.execute("DELETE FROM fixture_metadata")
             db.execute(
@@ -68,6 +81,10 @@ def reset_fixture_database(path: Path = DEMO_DB_PATH) -> dict:
                 [(policy["source_id"], policy["version"], json.dumps(policy)) for policy in fixture["policies"]],
             )
             db.executemany(
+                "INSERT INTO policy_passages (source_id, version, title, excerpt) VALUES (?, ?, ?, ?)",
+                [(policy["source_id"], policy["version"], policy["title"], policy["excerpt"]) for policy in fixture["policies"]],
+            )
+            db.executemany(
                 "INSERT INTO cases VALUES (?, ?, ?, ?)",
                 [(case["case_id"], case["customer_id"], case["order_id"], json.dumps(case)) for case in fixture["cases"]],
             )
@@ -80,7 +97,9 @@ def order_preview(order: dict, clock_utc: str) -> dict:
     facts = [("Payment", "Settled" if order["settled"] else "Unsettled")]
     if order["delivered_on"]:
         delivered = date.fromisoformat(order["delivered_on"])
-        facts.append(("Delivered", f"{delivered} ({(today - delivered).days} days ago)"))
+        elapsed_days = (today - delivered).days
+        detail = f"{elapsed_days} days ago" if elapsed_days >= 0 else "future date"
+        facts.append(("Delivered", f"{delivered} ({detail})"))
         if order["used"] is not None:
             facts.append(("Item condition", "Used" if order["used"] else "Unused"))
         facts.append(("Return received", "Yes" if order["return_received"] else "No"))
@@ -98,37 +117,45 @@ def order_preview(order: dict, clock_utc: str) -> dict:
     }
 
 
-def load_workspace(path: Path, customer_id: str) -> dict:
-    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
+@contextmanager
+def open_read_database(path: Path) -> Iterator[sqlite3.Connection]:
+    """Use one scoped, read-only snapshot for all reads in a request."""
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=2)) as db:
         db.row_factory = sqlite3.Row
         db.execute("BEGIN")
-        metadata = db.execute("SELECT fixture_version, clock_utc FROM fixture_metadata").fetchone()
-        if metadata is None:
-            raise sqlite3.DatabaseError("Fixture metadata is missing")
+        yield db
 
-        policies = {
-            (row["source_id"], row["version"]): json.loads(row["record"])
-            for row in db.execute("SELECT source_id, version, record FROM policies")
-        }
-        # Scope the case and its linked order before reading any order facts.
-        rows = db.execute(
-            """
-            SELECT cases.record AS case_record, orders.record AS order_record
-            FROM cases
-            LEFT JOIN orders ON orders.order_id = cases.order_id
-                AND orders.customer_id = cases.customer_id
-            WHERE cases.customer_id = ? AND (cases.order_id IS NULL OR orders.order_id IS NOT NULL)
-            ORDER BY cases.case_id
-            """,
-            (customer_id,),
-        )
 
-        cases = []
-        for row in rows:
-            case = json.loads(row["case_record"])
-            order = json.loads(row["order_record"]) if row["order_record"] else None
-            case["order"] = order_preview(order, metadata["clock_utc"]) if order else None
-            case["evidence"] = [policies[tuple(reference)] for reference in case["evidence"]]
-            cases.append(case)
+def load_metadata(db: sqlite3.Connection) -> dict:
+    metadata = db.execute("SELECT fixture_version, clock_utc FROM fixture_metadata").fetchone()
+    if metadata is None or metadata["fixture_version"] != FIXTURE_VERSION:
+        raise sqlite3.DatabaseError("The local demo data needs a fixture reset")
+    return dict(metadata)
 
-        return {**dict(metadata), "cases": cases}
+
+def list_cases(db: sqlite3.Connection, customer_id: str) -> list[dict]:
+    rows = db.execute(
+        """
+        SELECT case_id, json_extract(record, '$.scenario_id') AS scenario_id,
+            json_extract(record, '$.title') AS title
+        FROM cases
+        WHERE customer_id = ?
+        ORDER BY case_id
+        """,
+        (customer_id,),
+    )
+    return [dict(row) for row in rows]
+
+
+def load_case(db: sqlite3.Connection, customer_id: str, case_id: str) -> dict | None:
+    row = db.execute(
+        "SELECT case_id, order_id, record FROM cases WHERE customer_id = ? AND case_id = ?",
+        (customer_id, case_id),
+    ).fetchone()
+    if row is None:
+        return None
+    case = json.loads(row["record"])
+    expected = {"case_id": row["case_id"], "customer_id": customer_id, "order_id": row["order_id"]}
+    if not isinstance(case, dict) or any(key not in case or case[key] != value for key, value in expected.items()):
+        raise ValueError("Case record does not match its stored association")
+    return case

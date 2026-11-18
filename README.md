@@ -1,6 +1,6 @@
 # CasePilot
 
-CasePilot is a local portfolio application for investigating fictional board-game support cases. Checkpoint 1 is a fixture-driven walkthrough of the support desk. The interface shows a request, order facts, policy excerpts and an exact-action preview. The Stage 1 goal is a reviewer-controlled sandbox with verified receipts.
+CasePilot is a portfolio application for investigating fictional board-game support cases. Checkpoint 2 uses deterministic replay to read scoped order facts, retrieve relevant policy passages, and produce an evidence-backed proposal or a reason to pause. Replay uses a fixed case request and clock and makes zero model-provider calls. The Stage 1 goal is a reviewer-controlled sandbox with verified receipts.
 
 See [progress and verification](docs/PROGRESS.md) for the current checkpoint. This code was generated with Codex and is being reviewed in slices by the product owner.
 
@@ -40,11 +40,11 @@ Set-Location -LiteralPath 'E:\casepilot'
 npm --prefix '.\frontend' run dev
 ```
 
-Open [the local support desk](http://127.0.0.1:3000). Start with **Refund for a received return**, then try the damaged-game and late-delivery cases.
+Open [the local support desk](http://127.0.0.1:3000). Start with **Refund for a received return**, follow a policy citation, then try the cases with missing information, missing evidence, or conflicting rules.
 
 ### Reset fixtures and run checks
 
-The reset replaces the local sandbox records and restores the fixture clock to `2026-11-18 12:00 UTC`.
+After updating from Checkpoint 1, run the reset to install `stage1-v2`. The reset replaces local sandbox records and restores the fixture clock to `2026-11-18 12:00 UTC`.
 
 ```powershell
 Set-Location -LiteralPath 'E:\casepilot\backend'
@@ -53,6 +53,20 @@ Set-Location -LiteralPath 'E:\casepilot\backend'
 Set-Location -LiteralPath 'E:\casepilot'
 & '.\scripts\check-before-push.ps1'
 ```
+
+## Checkpoint 2 reads
+
+The Next.js server fetches the inbox with `GET /demo/workspace`, then requests one replay with `GET /demo/cases/{case_id}/investigation`. The replay uses the same scoped operations as these bearer-protected API routes.
+
+| Route | Result |
+| --- | --- |
+| `GET /demo/orders/{order_id}` | Versioned order facts |
+| `GET /demo/orders/{order_id}/lines/{line_id}` | Paid amount, quantity, and damage declaration for the line |
+| `GET /demo/orders/{order_id}/refunds` | Prior, reserved, and remaining cents, with optional `line_id` |
+| `GET /demo/orders/{order_id}/shipment` | Shipment status and recorded dates |
+| `GET /demo/cases/{case_id}/policies` | Applicable approved passages and evidence status |
+
+SQLite full-text search finds passages using the seeded case intent. The service checks approval status, product, region, and effective dates, then checks the required policy rules and verifies the proposed amount and citations against the facts. When evidence is missing or conflicts, the replay escalates the case before proposing an action. Checkpoint 2 results are read-only and regenerated on each case view.
 
 ## GitHub and Vercel
 

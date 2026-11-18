@@ -59,3 +59,40 @@ Next decision after review: approve Checkpoint 2 with free deterministic replay 
 
 - Checked the three existing commits and confirmed GitHub had only the matching `main` branch. The review found no personal documents, ZIP archives, or matches for local secrets and common credential formats.
 - Added repository-wide ignore rules for Word and PDF documents, ZIP archives, and common private-key files. Recorded the pre-push review and stop rule in `AGENTS.md`.
+
+## 2026-11-18 · Checkpoint 2, direct reads and deterministic replay
+
+Opening a case now runs an investigation against `stage1-v2` instead of displaying canned evidence and proposals. Existing installations need one fixture reset. The source repository is public by the product owner's request. Vercel Authentication protects the hosted desk.
+
+```mermaid
+flowchart LR
+    Desk[Case desk] -->|Select case| Web[Next.js server]
+    Web -->|Scoped request| API[FastAPI replay]
+    API -->|Order and balance reads| Facts[(SQLite fixtures)]
+    API -->|Full-text policy search| Policies[(Versioned passages)]
+    API -->|Facts and evidence| Rules[Validate and decide]
+    Rules -->|Proposal, question, or escalation| Desk
+```
+
+In **SC01**, the server uses the demo session to find O100 v3, retrieves KB01 and KB04, and checks that the unused return was received within 30 days. The refund read finds 8,000 cents available. Replay validates the amount and citation versions and returns a proposal for review. The ledger stays empty.
+
+### Rules and verification
+
+| Scenario | Checkpoint 2 behavior verified |
+| --- | --- |
+| SC01, SC02 | Repeatable $80 proposal with versioned citations, inclusive day 30, rejection of day 31, future and malformed dates |
+| SC05, SC06 | Clarification for a missing order ID and generic errors for orders outside the session's scope |
+| SC07 | Missing, conflicting and expired evidence trigger escalation |
+| SC09, SC11 | $20 remaining on the balance variant and rejection of malformed proposals |
+| SC10, SC18 | One retry after a read timeout and a delay draft without an invented delivery date |
+
+- **Passing** · Eleven backend tests and the Next.js production build. This covers the read and replay portion of the listed scenarios. Full Stage 1 acceptance remains pending.
+- **Passing** · Edge opened the built app, navigated cases and citations by keyboard, and checked the refund, missing-order, missing and conflicting evidence, line balance, and delay paths. The page fit at 390 pixels and reported no runtime page errors.
+- **Host limitation** · Local `vercel build --prod` compiled Next.js, then Windows refused a symlink during Vercel packaging.
+- Replay uses seeded intent, up to six read attempts, one retry per timed-out read, a two-second read timeout, a 20-second run limit, and a 4,000-character request cap. The run history shows observed tool outcomes. It is regenerated for each view and makes zero model-provider calls.
+
+### Review
+
+Open SC01 and follow KB01 v1 from the $80 proposal. Open SC05 and check the order ID prompt. Compare the missing and conflicting SC07 cases. Review the unknown-status draft in SC18.
+
+This slice serves read-only proposals and drafts. The next decision is whether to approve Checkpoint 3 for exact-revision reviewer controls and local sandbox execution.
