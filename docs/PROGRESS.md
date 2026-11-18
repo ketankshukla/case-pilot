@@ -47,3 +47,10 @@ Next decision after review: approve Checkpoint 2 with free deterministic replay 
 - **Passing** · Five backend tests and the Next.js production build. The hosted-entry test checks the packaged seed, bearer authentication, and rejection of writes.
 - **Passing** · `vercel dev --local` loaded SC01 and its $80 proposal through the service binding. A request through the frontend URL to `/demo/workspace` returned 404.
 - **Pending** · Vercel account inspection found no project connected to the GitHub repository. `vercel build` reported that linked project settings were required. The Git-triggered cloud build is pending that connection. See the [README](../README.md#github-and-vercel) for the Services preset and protection settings.
+
+## 2026-11-18 · First Vercel production deployment
+
+- The first deployment built Next.js and FastAPI successfully. An authenticated request showed **Case desk unavailable** because the production demo token was missing.
+- Enabled Vercel Authentication for all deployments. Confirmed the production address required sign-in before adding `CASEPILOT_DEMO_TOKEN` as a production-only Vercel Secret.
+- Five backend tests and the Next.js production build passed before push. Local `vercel build --prod` compiled Next.js and hit a Windows symlink permission error during packaging. Vercel's first cloud build packaged both services successfully.
+- A fresh GitHub-triggered build picks up the secret. Check the deployed page for the SC01 fixture and its $80 proposal after Vercel reports Ready.
