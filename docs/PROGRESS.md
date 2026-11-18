@@ -54,3 +54,8 @@ Next decision after review: approve Checkpoint 2 with free deterministic replay 
 - Enabled Vercel Authentication for all deployments. Confirmed the production address required sign-in before adding `CASEPILOT_DEMO_TOKEN` as a production-only Vercel Secret.
 - Five backend tests and the Next.js production build passed before push. Local `vercel build --prod` compiled Next.js and hit a Windows symlink permission error during packaging. Vercel's first cloud build packaged both services successfully.
 - A fresh GitHub-triggered build picks up the secret. Check the deployed page for the SC01 fixture and its $80 proposal after Vercel reports Ready.
+
+## 2026-11-18 · Repository privacy
+
+- Checked the three existing commits and confirmed GitHub had only the matching `main` branch. The review found no personal documents, ZIP archives, or matches for local secrets and common credential formats.
+- Added repository-wide ignore rules for Word and PDF documents, ZIP archives, and common private-key files. Recorded the pre-push review and stop rule in `AGENTS.md`.
