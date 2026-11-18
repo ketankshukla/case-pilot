@@ -270,6 +270,19 @@ dd { margin: 0; font-size: .9rem; font-weight: 650; }
 .review-form button:disabled { opacity: .52; cursor: not-allowed; }
 .review-detail summary { padding: .2rem 0; cursor: pointer; color: var(--accent); }
 .review-form p.muted { margin-top: 0; }
+.review-key-help {
+  display: grid;
+  gap: .5rem;
+  padding: .65rem;
+  border: 1px solid var(--border);
+  border-radius: .55rem;
+  font-size: .8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.review-key-help p { margin: 0; }
+.review-key-command { user-select: all; }
+.review-key-copy { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .55rem; }
 .review-error, .review-outcome, .verified-receipt { margin-top: .65rem; padding: .6rem .7rem; border-radius: .4rem; font-size: .8125rem; }
 .review-error { color: var(--warning); background: var(--warning-wash); }
 .review-outcome { background: #f2f7f7; }

@@ -1,5 +1,7 @@
+import { resolve } from "node:path";
 import type { ReactNode } from "react";
 
+import { ReviewerKeyHelp } from "./reviewer-key-help";
 import type { ReviewerAccess } from "./reviewer-session";
 import type { DemoCase, ReviewSnapshot, ReviewState, VerifiedReceipt } from "./workspace";
 
@@ -173,8 +175,9 @@ export function LocalReview({ item, review, access, notice }: {
         <form className="review-form" method="post" action="/api/sandbox/session">
           <input type="hidden" name="action" value="login" />
           <input type="hidden" name="case_id" value={item.case_id} />
+          <ReviewerKeyHelp command={`notepad '${resolve(".env.local").replaceAll("'", "''")}'`} />
           <label htmlFor="reviewer-key">Reviewer key</label>
-          <input id="reviewer-key" type="password" name="reviewer_key" maxLength={256} autoComplete="off" required />
+          <input id="reviewer-key" type="password" name="reviewer_key" maxLength={256} autoComplete="off" aria-describedby="reviewer-key-help" required />
           <button type="submit">Sign in as reviewer</button>
         </form>
       ) : null}

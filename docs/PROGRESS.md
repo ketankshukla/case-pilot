@@ -138,3 +138,9 @@ The executor can produce one local refund ledger entry, replacement request or o
 ### Review
 
 Follow the [local reviewer walkthrough](../README.md#local-reviewer-walkthrough) to approve SC01, deny SC03, edit SC04, and reconcile SC13. The next decision is whether to proceed to Checkpoint 4 for the audit views, failure coverage, and full Stage 1 evaluation.
+
+### Reviewer sign-in follow-up
+
+Reproduced the missing setup guidance on signed-out SC01. The sign-in form now shows the exact PowerShell command to open the local key file, a copy button for the command, and the line to look for. The form continues to verify the locally configured reviewer key.
+
+All 29 backend tests and the production build passed. Edge verified the command, clipboard feedback, mobile layout, and sign-in. The credential stayed out of the rendered page.
