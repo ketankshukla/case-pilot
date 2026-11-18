@@ -7,7 +7,7 @@ from typing import Annotated, Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from .database import order_preview
-from .reads import CustomerId, DemoReads, Intent, LineId, OrderFacts, OrderId, PolicyPassage, ReadError
+from .reads import CustomerId, DemoReads, Intent, LineId, OrderFacts, OrderId, PolicyPassage, ReadError, SupportReference
 
 
 READ_TIMEOUT_SECONDS = 2
@@ -36,6 +36,7 @@ class CaseInput(CaseSummary):
     line_id: LineId | None = None
     intent: Intent
     initial_refund_cents: Annotated[int, Field(gt=0)] | None = None
+    support_reference: SupportReference | None = None
 
 
 class Fact(BaseModel):
@@ -102,6 +103,7 @@ class Investigation(CaseSummary):
     state: CaseState = "investigating"
     request: str
     order: OrderPreview | None = None
+    candidate_order_ids: list[OrderId] = Field(default_factory=list)
     missing_information: list[str] = Field(default_factory=list)
     evidence: list[PolicyPassage] = Field(default_factory=list)
     evidence_status: EvidenceStatus = "not_checked"
@@ -136,6 +138,7 @@ def bounded_read(db: sqlite3.Connection, run_deadline: float, operation: Callabl
 
 
 TOOL_NAMES = {
+    "orders.find_candidates": "Find matching orders",
     "order.lookup": "Order lookup",
     "line.lookup": "Line-item lookup",
     "refunds.lookup": "Refund balance lookup",
@@ -307,18 +310,31 @@ def investigate_received_order(run: InvestigationRun, reads: DemoReads, order: O
     return propose_refund(run, order, balance.remaining_cents, eligibility)
 
 
+def clarify_order(run: InvestigationRun, reads: DemoReads) -> Investigation:
+    reference = run.case.support_reference
+    if reference is None:
+        return run.finish("awaiting_information", "An order ID is needed to check the facts.", "Ask for the order ID.")
+    candidates = run.read(
+        "orders.find_candidates", lambda: reads.order_candidates(reference),
+        lambda matches: f"Authorized candidates returned: {len(matches)}.",
+    )
+    run.result.candidate_order_ids = candidates
+    if candidates:
+        return run.finish("awaiting_information", "Matching orders need confirmation.", "Ask the customer to confirm the order ID.")
+    return run.finish("awaiting_information", "No matching orders were found for this account.", "Check the reference or ask for the order ID.")
+
+
 def investigate(db: sqlite3.Connection, case: CaseInput, clock_utc: str) -> Investigation:
     run = InvestigationRun(db, case, clock_utc)
-    if not case.order_id:
-        return run.finish("awaiting_information", "An order ID is needed to check the facts.", "Ask for the order ID.")
-
     reads = DemoReads(db, case.customer_id, clock_utc)
     try:
+        if not case.order_id:
+            return clarify_order(run, reads)
         order = run.read("order.lookup", lambda: reads.order(case.order_id), lambda result: f"Authorized order {result.order_id} v{result.version}.")
         run.result.order = OrderPreview.model_validate(order_preview(order.model_dump(mode="json"), clock_utc))
         evidence = run.read(
             "policies.search", lambda: reads.policies(case.intent, order.product, order.region),
-            lambda result: f"Evidence status: {result.status}. Current approved passages: {len(result.passages)}.",
+            lambda result: f"Evidence status: {result.status}. Retrieved passages: {len(result.passages)}.",
         )
         run.result.evidence = evidence.passages
         run.result.evidence_status = evidence.status

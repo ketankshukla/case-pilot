@@ -8,8 +8,19 @@ from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_PATH = BACKEND_ROOT / "fixtures" / "stage1.json"
+ADVERSARIAL_FIXTURE_PATH = BACKEND_ROOT / "fixtures" / "adversarial.json"
 DEMO_DB_PATH = BACKEND_ROOT / "data" / "demo.sqlite3"
-FIXTURE_VERSION = "stage1-v3"
+FIXTURE_VERSION = "stage1-v4"
+UPGRADE_FROM = "stage1-v3"
+
+AUDIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sandbox_runs (
+    run_number INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE,
+    case_id TEXT NOT NULL REFERENCES cases (case_id),
+    snapshot TEXT NOT NULL
+)
+"""
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fixture_metadata (
@@ -107,8 +118,42 @@ CREATE TABLE IF NOT EXISTS sandbox_events (
 """
 
 
-def reset_fixture_database(path: Path = DEMO_DB_PATH) -> dict:
+def _load_fixtures() -> dict:
     fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    if fixture["fixture_version"] != FIXTURE_VERSION:
+        raise ValueError("The fixture file does not match the supported local database version.")
+    adversarial = json.loads(ADVERSARIAL_FIXTURE_PATH.read_text(encoding="utf-8"))
+    for table in ("orders", "policies", "cases"):
+        fixture[table].extend(adversarial.get(table, []))
+    return fixture
+
+
+def _insert_fixtures(db: sqlite3.Connection, fixture: dict, *, preserve_existing: bool = False) -> None:
+    order_conflict = " ON CONFLICT(order_id) DO NOTHING" if preserve_existing else ""
+    db.executemany(
+        "INSERT INTO orders VALUES (?, ?, ?)" + order_conflict,
+        [(order["order_id"], order["customer_id"], json.dumps(order)) for order in fixture["orders"]],
+    )
+    policy_conflict = " ON CONFLICT(source_id, version) DO NOTHING" if preserve_existing else ""
+    for policy in fixture["policies"]:
+        inserted = db.execute(
+            "INSERT INTO policies VALUES (?, ?, ?)" + policy_conflict,
+            (policy["source_id"], policy["version"], json.dumps(policy)),
+        )
+        if inserted.rowcount:
+            db.execute(
+                "INSERT INTO policy_passages (source_id, version, title, excerpt) VALUES (?, ?, ?, ?)",
+                (policy["source_id"], policy["version"], policy["title"], policy["excerpt"]),
+            )
+    case_conflict = " ON CONFLICT(case_id) DO NOTHING" if preserve_existing else ""
+    db.executemany(
+        "INSERT INTO cases VALUES (?, ?, ?, ?)" + case_conflict,
+        [(case["case_id"], case["customer_id"], case["order_id"], json.dumps(case)) for case in fixture["cases"]],
+    )
+
+
+def reset_fixture_database(path: Path = DEMO_DB_PATH) -> dict:
+    fixture = _load_fixtures()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with closing(sqlite3.connect(path)) as db:
@@ -116,9 +161,11 @@ def reset_fixture_database(path: Path = DEMO_DB_PATH) -> dict:
         db.executescript(SCHEMA)
         db.execute("BEGIN IMMEDIATE")
         with db:
+            db.execute(AUDIT_SCHEMA)
             ledger_columns = {column[1] for column in db.execute("PRAGMA table_info(refund_ledger)")}
             if "line_id" not in ledger_columns:
                 db.execute("ALTER TABLE refund_ledger ADD COLUMN line_id TEXT")
+            db.execute("DELETE FROM sandbox_runs")
             db.execute("DELETE FROM sandbox_events")
             db.execute("DELETE FROM replacement_requests")
             db.execute("DELETE FROM sandbox_outbox")
@@ -135,24 +182,27 @@ def reset_fixture_database(path: Path = DEMO_DB_PATH) -> dict:
                 "INSERT INTO fixture_metadata VALUES (?, ?)",
                 (fixture["fixture_version"], fixture["clock_utc"]),
             )
-            db.executemany(
-                "INSERT INTO orders VALUES (?, ?, ?)",
-                [(order["order_id"], order["customer_id"], json.dumps(order)) for order in fixture["orders"]],
-            )
-            db.executemany(
-                "INSERT INTO policies VALUES (?, ?, ?)",
-                [(policy["source_id"], policy["version"], json.dumps(policy)) for policy in fixture["policies"]],
-            )
-            db.executemany(
-                "INSERT INTO policy_passages (source_id, version, title, excerpt) VALUES (?, ?, ?, ?)",
-                [(policy["source_id"], policy["version"], policy["title"], policy["excerpt"]) for policy in fixture["policies"]],
-            )
-            db.executemany(
-                "INSERT INTO cases VALUES (?, ?, ?, ?)",
-                [(case["case_id"], case["customer_id"], case["order_id"], json.dumps(case)) for case in fixture["cases"]],
-            )
+            _insert_fixtures(db, fixture)
 
     return {"fixture_version": fixture["fixture_version"], "clock_utc": fixture["clock_utc"]}
+
+
+def upgrade_fixture_database(path: Path = DEMO_DB_PATH) -> dict:
+    """Install v4 audit storage and additional fixtures while retaining local records."""
+    fixture = _load_fixtures()
+    if not path.is_file():
+        raise ValueError("No local demo database exists. Use --reset to create a fresh demo.")
+    with open_write_database(path) as db:
+        existing = db.execute("SELECT fixture_version, clock_utc FROM fixture_metadata").fetchall()
+        if len(existing) != 1 or existing[0]["fixture_version"] not in {UPGRADE_FROM, FIXTURE_VERSION}:
+            raise ValueError(f"This upgrade supports {UPGRADE_FROM} and {FIXTURE_VERSION} databases.")
+        if existing[0]["clock_utc"] != fixture["clock_utc"]:
+            raise ValueError("The database fixture clock differs from the bundled fixture clock.")
+        if existing[0]["fixture_version"] == UPGRADE_FROM:
+            db.execute(AUDIT_SCHEMA)
+            _insert_fixtures(db, fixture, preserve_existing=True)
+            db.execute("UPDATE fixture_metadata SET fixture_version = ?", (FIXTURE_VERSION,))
+        return load_metadata(db)
 
 
 def order_preview(order: dict, clock_utc: str) -> dict:
@@ -203,7 +253,7 @@ def open_write_database(path: Path) -> Iterator[sqlite3.Connection]:
 def load_metadata(db: sqlite3.Connection) -> dict:
     metadata = db.execute("SELECT fixture_version, clock_utc FROM fixture_metadata").fetchone()
     if metadata is None or metadata["fixture_version"] != FIXTURE_VERSION:
-        raise sqlite3.DatabaseError("The local demo data needs a fixture reset")
+        raise sqlite3.DatabaseError("The local demo fixtures need an upgrade or a fresh reset")
     return dict(metadata)
 
 

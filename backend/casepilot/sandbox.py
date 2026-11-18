@@ -1,16 +1,23 @@
+import json
+import os
+import re
 import sqlite3
 from hashlib import sha256
 from pathlib import Path
+from time import monotonic
 from uuid import uuid4
 
 from .database import load_case, load_metadata, open_read_database, open_write_database
-from .investigation import CaseInput, ProposalPreview
+from .investigation import CaseInput, Investigation, ProposalPreview, investigate
 from .reads import ReadError
 from .sandbox_candidates import edit_proposal, initial_proposal, validate_proposal
 
 
 REFUNDS = {"full_refund", "partial_refund"}
 STARTABLE = {"denied", "failed", "invalidated"}
+CREDENTIAL_PATTERN = re.compile(
+    r"(?i)\bbearer +[^\s]+|\b(?:gh[pousr]_|github_pat_|sk-(?:proj-)?)[A-Za-z0-9_-]{16,}"
+)
 
 
 class SandboxError(Exception):
@@ -74,6 +81,53 @@ def _transition(db, actor, clock, proposal, state, operation, detail, execution_
     _event(db, actor, clock, proposal, operation, detail, state, execution_id)
 
 
+def redact_credentials(text: str) -> str:
+    for name in ("CASEPILOT_DEMO_TOKEN", "CASEPILOT_REVIEWER_TOKEN"):
+        token = os.environ.get(name)
+        if token:
+            text = text.replace(token, "[redacted]")
+    return CREDENTIAL_PATTERN.sub("[redacted]", text)
+
+
+def _timed_investigation(db, case, clock) -> tuple[Investigation, int]:
+    started_at = monotonic()
+    result = investigate(db, case, clock)
+    return result, round((monotonic() - started_at) * 1000)
+
+
+def _save_run(db, case, actor, metadata, result, latency_ms, revision=None):
+    run_id = uuid4().hex
+    # Persist only the structured audit projection. Request text, drafts and policy excerpts remain out of it.
+    snapshot = {
+        "run_id": run_id,
+        "case_id": case.case_id,
+        "scenario_id": case.scenario_id,
+        "actor": actor,
+        "at_utc": metadata["clock_utc"],
+        "fixture_version": metadata["fixture_version"],
+        "mode": "replay",
+        "order_version": result.order.version if result.order else None,
+        "evidence": [
+            {"source_id": redact_credentials(passage.source_id), "version": passage.version}
+            for passage in result.evidence
+        ],
+        "evidence_status": result.evidence_status,
+        "decision_summary": redact_credentials(result.decision_summary),
+        "state": result.state,
+        "tools": [
+            {**event.model_dump(), "title": redact_credentials(event.title), "detail": redact_credentials(event.detail)}
+            for event in result.history
+        ],
+        "latency_ms": latency_ms,
+        "provider_calls": 0,
+        "proposal_revision": revision,
+    }
+    db.execute(
+        "INSERT INTO sandbox_runs (run_id, case_id, snapshot) VALUES (?, ?, ?)",
+        (run_id, case.case_id, json.dumps(snapshot)),
+    )
+
+
 def _save_proposal(db, actor, clock, candidate, revision, operation):
     payload = candidate.model_copy(update={"revision": revision})
     db.execute(
@@ -123,7 +177,8 @@ def _execution_snapshot(db, operation, payload):
     return {"execution_id": execution_id, "status": status, "message": message, "receipt": receipt}
 
 
-def _snapshot(db, case_id, revision=None):
+def _snapshot(db, case, revision=None):
+    case_id = case.case_id
     current = _proposal(db, case_id, revision)
     saved = None
     if current is not None:
@@ -139,36 +194,59 @@ def _snapshot(db, case_id, revision=None):
             "execution": execution, "idempotency_key": current["idempotency_key"],
         }
     events = db.execute(
-        "SELECT at_utc, actor, operation, detail FROM sandbox_events WHERE case_id = ? ORDER BY event_id", (case_id,),
+        """
+        SELECT e.event_id, e.at_utc, e.actor, e.operation, e.detail, e.revision, e.before_state,
+            e.after_state, e.execution_id, x.idempotency_key
+        FROM sandbox_events e
+        LEFT JOIN sandbox_executions x ON x.execution_id = e.execution_id
+        WHERE e.case_id = ?
+        ORDER BY e.event_id
+        """, (case_id,),
     )
-    return {"case_id": case_id, "proposal": saved, "events": [dict(event) for event in events]}
+    safe_events = []
+    for event in events:
+        details = dict(event)
+        key = details.pop("idempotency_key")
+        details["idempotency_identity"] = sha256(key.encode()).hexdigest()[:12] if key else None
+        safe_events.append(details)
+    runs = db.execute(
+        "SELECT snapshot FROM sandbox_runs WHERE case_id = ? ORDER BY run_number", (case_id,),
+    )
+    return {
+        "case_id": case_id, "scenario_id": case.scenario_id, "proposal": saved,
+        "events": safe_events, "runs": [json.loads(row["snapshot"]) for row in runs],
+    }
 
 
 def _unavailable(error):
     if isinstance(error, ReadError) and error.code == "not_found":
         return SandboxError(409, "facts_unavailable", "The order facts could not be verified.")
-    return SandboxError(503, "sandbox_unavailable", "The local sandbox is unavailable. Check the fixture setup and retry.")
+    return SandboxError(503, "sandbox_unavailable", "The local sandbox is unavailable. Check the fixture setup or upgrade.")
 
 
 def read_review(path: Path, case_id: str, customer_id: str) -> dict:
     try:
         with open_read_database(path) as db:
             load_metadata(db)
-            _load_scoped_case(db, case_id, customer_id)
-            return _snapshot(db, case_id)
+            case = _load_scoped_case(db, case_id, customer_id)
+            return _snapshot(db, case)
     except (sqlite3.DatabaseError, ValueError) as error:
         raise _unavailable(error) from error
 
 
-def _prepare(db, case, actor, clock):
+def _prepare(db, case, actor, metadata):
     current = _proposal(db, case.case_id)
     if current is not None and current["state"] not in STARTABLE:
         return current["revision"]
-    candidate = initial_proposal(db, case, clock)
+    clock = metadata["clock_utc"]
+    result, latency_ms = _timed_investigation(db, case, clock)
+    candidate = initial_proposal(case, result)
     if candidate is None:
         raise SandboxError(409, "no_proposal", "This case has no action ready for review.")
     revision = current["revision"] + 1 if current else 1
-    return _save_proposal(db, actor, clock, candidate, revision, "proposal.prepared")
+    _save_proposal(db, actor, clock, candidate, revision, "proposal.prepared")
+    _save_run(db, case, actor, metadata, result, latency_ms, revision)
+    return revision
 
 
 def _edit(db, case, actor, clock, current, payload, amount_cents):
@@ -303,10 +381,15 @@ def mutate_review(path: Path, case_id: str, customer_id: str, reviewer_id: str, 
     verify_id = None
     try:
         with open_write_database(path) as db:
-            clock = load_metadata(db)["clock_utc"]
+            metadata = load_metadata(db)
+            clock = metadata["clock_utc"]
             case = _load_scoped_case(db, case_id, customer_id)
             if action == "prepare":
-                revision = _prepare(db, case, reviewer_id, clock)
+                revision = _prepare(db, case, reviewer_id, metadata)
+            elif action == "record_run":
+                replay, latency_ms = _timed_investigation(db, case, clock)
+                _save_run(db, case, reviewer_id, metadata, replay, latency_ms)
+                revision = None
             elif action == "execute":
                 revision, verify_id = _execute(db, case, reviewer_id, clock, command)
             elif action == "reconcile":
@@ -319,7 +402,7 @@ def mutate_review(path: Path, case_id: str, customer_id: str, reviewer_id: str, 
                     revision = _edit(db, case, reviewer_id, clock, current, payload, command["amount_cents"])
                 else:
                     _record_review(db, case, reviewer_id, clock, current, payload, command)
-            result = _snapshot(db, case_id, revision)
+            result = _snapshot(db, case, revision)
     except (sqlite3.DatabaseError, ReadError, ValueError) as error:
         raise _unavailable(error) from error
 
@@ -328,9 +411,9 @@ def mutate_review(path: Path, case_id: str, customer_id: str, reviewer_id: str, 
     # The record has committed. Check it in a separate transaction before reporting completion.
     try:
         with open_write_database(path) as db:
-            _load_scoped_case(db, case_id, customer_id)
+            case = _load_scoped_case(db, case_id, customer_id)
             _reconcile(db, case_id, reviewer_id, clock, verify_id)
-            return _snapshot(db, case_id, revision)
+            return _snapshot(db, case, revision)
     except (sqlite3.DatabaseError, ValueError):
         # Retain the original operation and never treat a failed readback as a failed write.
         return result

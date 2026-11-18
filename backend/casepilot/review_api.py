@@ -1,5 +1,3 @@
-import os
-import re
 import sqlite3
 from collections.abc import Callable
 from typing import Annotated, Literal
@@ -7,8 +5,8 @@ from typing import Annotated, Literal
 from fastapi import Body, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from .investigation import CaseId, ProposalPreview
-from .sandbox import SandboxError
+from .investigation import CaseId, CaseState, EvidenceStatus, HistoryEvent, PolicyVersion, ProposalPreview
+from .sandbox import SandboxError, redact_credentials
 
 
 Revision = Annotated[int, Field(ge=1, le=2_147_483_647)]
@@ -23,6 +21,10 @@ class ReviewCommandBody(BaseModel):
 
 class Prepare(ReviewCommandBody):
     action: Literal["prepare"]
+
+
+class RecordRun(ReviewCommandBody):
+    action: Literal["record_run"]
 
 
 class Approve(ReviewCommandBody):
@@ -54,7 +56,7 @@ class Reconcile(ReviewCommandBody):
     execution_id: OperationId
 
 
-ReviewCommand = Annotated[Prepare | Approve | Deny | Edit | Execute | Reconcile, Body(discriminator="action")]
+ReviewCommand = Annotated[Prepare | RecordRun | Approve | Deny | Edit | Execute | Reconcile, Body(discriminator="action")]
 
 
 class ReviewDecision(BaseModel):
@@ -93,30 +95,49 @@ class SavedProposal(BaseModel):
 
 
 class ReviewEvent(BaseModel):
+    event_id: int
     at_utc: str
     actor: str
     operation: str
     detail: str
+    revision: Revision
+    before_state: ReviewState | None
+    after_state: ReviewState
+    execution_id: str | None
+    idempotency_identity: str | None
+
+
+class SavedRun(BaseModel):
+    run_id: str
+    case_id: CaseId
+    scenario_id: str
+    actor: str
+    at_utc: str
+    fixture_version: str
+    mode: Literal["replay"]
+    order_version: int | None
+    evidence: list[PolicyVersion]
+    evidence_status: EvidenceStatus
+    decision_summary: str
+    state: CaseState
+    tools: list[HistoryEvent]
+    latency_ms: Annotated[int, Field(ge=0)]
+    provider_calls: Literal[0]
+    proposal_revision: Revision | None
 
 
 class ReviewSnapshot(BaseModel):
     case_id: CaseId
+    scenario_id: str
     proposal: SavedProposal | None
     events: list[ReviewEvent]
-
-
-CREDENTIAL_PATTERN = re.compile(r"(?i)\bbearer +[^\s]+|\b(?:gh[pousr]_|github_pat_|sk-(?:proj-)?)[A-Za-z0-9_-]{16,}")
+    runs: list[SavedRun]
 
 
 def review_payload(command: ReviewCommandBody) -> dict:
     payload = command.model_dump()
     if isinstance(command, Deny):
-        reason = command.reason
-        for name in ("CASEPILOT_DEMO_TOKEN", "CASEPILOT_REVIEWER_TOKEN"):
-            token = os.environ.get(name)
-            if token:
-                reason = reason.replace(token, "[redacted]")
-        payload["reason"] = CREDENTIAL_PATTERN.sub("[redacted]", reason)[:280]
+        payload["reason"] = redact_credentials(command.reason)[:280]
     return payload
 
 

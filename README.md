@@ -1,8 +1,8 @@
 # CasePilot
 
-CasePilot is a portfolio application for investigating fictional board-game support cases. Deterministic replay uses a fixed case request and clock to read scoped facts, retrieve relevant policy passages, and propose a resolution. Checkpoint 3 adds reviewer decisions and verified execution in the local SQLite sandbox. Replay makes zero model-provider calls.
+CasePilot is a portfolio application for investigating fictional board-game support cases. Deterministic replay uses a fixed case request and clock to read scoped facts, retrieve relevant policy passages, and propose a resolution. A local reviewer can approve a saved proposal, verify its sandbox result, and inspect the saved audit trail. Replay makes zero model-provider calls.
 
-See [progress and verification](docs/PROGRESS.md) for the current checkpoint. This code was generated with Codex and is being reviewed in slices by the product owner.
+This code was generated with Codex and reviewed in slices by the product owner. See the [Stage 1 specification and five-minute walkthrough](docs/STAGE1.md), [architecture and decision flows](docs/FLOWS.md), [scenario matrix and evaluation](docs/EVALUATION.md), and [progress log](docs/PROGRESS.md).
 
 ## Windows setup
 
@@ -45,9 +45,16 @@ npm --prefix '.\frontend' run dev
 
 Open [the local support desk](http://127.0.0.1:3000). Start with **Refund for a received return**, follow a policy citation, then try the cases with missing information, missing evidence, or conflicting rules.
 
-### Reset fixtures and run checks
+### Upgrade or reset fixtures
 
-After updating from Checkpoint 2, run the reset to install `stage1-v3`. The reset replaces local sandbox records, review history, and receipts and restores the fixture clock to `2026-11-18 12:00 UTC`.
+To update an existing Checkpoint 3 database, stop the local backend and run the upgrade. It adds the Stage 1 test fixtures and audit schema while preserving saved local records.
+
+```powershell
+Set-Location -LiteralPath 'E:\casepilot\backend'
+& '..\.venv\Scripts\python.exe' -m casepilot.seed --upgrade
+```
+
+For a fresh walkthrough, reset to `stage1-v4`. A reset replaces local sandbox records, review history, and receipts and restores the fixture clock to `2026-11-18 12:00 UTC`.
 
 ```powershell
 Set-Location -LiteralPath 'E:\casepilot\backend'
@@ -57,7 +64,7 @@ Set-Location -LiteralPath 'E:\casepilot'
 & '.\scripts\check-before-push.ps1'
 ```
 
-## Checkpoint 2 reads
+## Direct case reads
 
 The Next.js server fetches the inbox with `GET /demo/workspace`, then requests one replay with `GET /demo/cases/{case_id}/investigation`. The replay uses the same scoped operations as these bearer-protected API routes.
 
@@ -73,17 +80,17 @@ SQLite full-text search finds passages using the seeded case intent. The service
 
 ## Local reviewer walkthrough
 
-1. Open the [local support desk](http://127.0.0.1:3000) and sign in as reviewer with the `CASEPILOT_REVIEWER_TOKEN` value from the ignored `frontend/.env.local` file. Keep that key local.
+1. Open the [local support desk](http://127.0.0.1:3000) and follow the steps beside **Reviewer key** to sign in.
 2. Open **SC01**, prepare the $80 proposal, and approve the saved revision. Check the approved state, then select **Execute approved action** to verify a sandbox receipt.
 3. Open **SC03**, prepare the proposal, and deny it with a reason. Open **SC04**, prepare the invalid $100 draft, and save a new revision for `4000` cents. Review and approve the new revision before execution.
 4. Open **SC13**, prepare and approve the proposal, then select **Timeout after commit** before execution. The case stays uncertain until **Reconcile operation** reads back the original operation and verifies a receipt.
-5. **SC17** records a replacement request and **SC18** saves an honest draft in the local outbox. Both follow the same approval and verification steps.
+5. Open **Run history → Saved audit trail**. Expand the saved investigation and review events to see the policy versions, decision, state changes, and original operation ID. Use **Save investigation to audit** to record a case that needs more information or has missing evidence.
 
 Next.js checks the local browser origin on each review submission and keeps a signed, one-hour, HTTP-only reviewer session. FastAPI verifies a distinct reviewer bearer and keeps the reviewer scoped to C100. Review actions are disabled in the hosted app. Refunds are local ledger entries, replacements are local requests, and delay updates are local drafts.
 
 ## GitHub and Vercel
 
-Run the pre-push script for every GitHub push. It checks the Python service and builds the Next.js production bundle. Once the Vercel project is linked, also run `vercel build` locally with the matching project settings for Vercel configuration or runtime changes. Push the verified commit to GitHub and check that commit's deployment status in Vercel. [Local Vercel builds](https://vercel.com/docs/cli/build).
+Run the pre-push script for every GitHub push. It checks the Python service and builds the Next.js production bundle. For linked Vercel runtime or configuration changes, use local `vercel build` where supported. The Windows symlink restriction on this workspace leaves Vercel packaging to the Git-triggered cloud build. Check the deployment for the pushed commit. [Local Vercel builds](https://vercel.com/docs/cli/build).
 
 The [root Vercel configuration](vercel.json) uses Services (Beta) to build `frontend/` and `backend/` together. When connecting the GitHub repository, use the **Services** framework preset with the repository root as the project root. Enable **Vercel Authentication → All Deployments** for the Stage 1 review and set a fresh `CASEPILOT_DEMO_TOKEN` for the protected environment. Vercel supplies `CASEPILOT_BACKEND_URL` automatically as a private binding from Next.js to FastAPI. [Vercel Services](https://vercel.com/docs/services), [Deployment Protection](https://vercel.com/changelog/protect-production-deployments-for-free-on-every-plan).
 

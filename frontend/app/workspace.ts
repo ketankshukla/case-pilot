@@ -43,8 +43,33 @@ export interface VerifiedReceipt {
   verified_at: string;
 }
 
+export interface ToolEvent {
+  at_utc: string;
+  title: string;
+  detail: string;
+  operation: string;
+  status: "ok" | "paused" | "error";
+  attempt: number;
+  latency_ms: number | null;
+}
+
+export interface SavedInvestigation extends Pick<DemoCase, "case_id" | "scenario_id" | "state" | "evidence_status" | "decision_summary"> {
+  run_id: string;
+  actor: string;
+  at_utc: string;
+  fixture_version: string;
+  mode: "replay";
+  order_version: number | null;
+  proposal_revision: number | null;
+  evidence: PolicyVersion[];
+  tools: ToolEvent[];
+  latency_ms: number;
+  provider_calls: 0;
+}
+
 export interface ReviewSnapshot {
   case_id: string;
+  scenario_id: string;
   proposal: {
     revision: number;
     state: ReviewState;
@@ -63,7 +88,19 @@ export interface ReviewSnapshot {
     } | null;
     idempotency_key: string;
   } | null;
-  events: { at_utc: string; actor: string; operation: string; detail: string }[];
+  events: {
+    event_id: number;
+    revision: number;
+    at_utc: string;
+    actor: string;
+    operation: string;
+    detail: string;
+    before_state: ReviewState | null;
+    after_state: ReviewState;
+    execution_id: string | null;
+    idempotency_identity: string | null;
+  }[];
+  runs: SavedInvestigation[];
 }
 
 export interface DemoCase extends CaseSummary {
@@ -78,24 +115,18 @@ export interface DemoCase extends CaseSummary {
     facts: { label: string; value: string }[];
   } | null;
   missing_information: string[];
+  candidate_order_ids: string[];
   evidence_status: "available" | "missing" | "conflicting" | "not_checked";
   evidence: (PolicyVersion & {
     title: string;
     effective_date: string;
     approval_status: string;
+    source_kind?: "adversarial_fixture" | "policy";
     excerpt: string;
   })[];
   proposal: Proposal | null;
   draft: string | null;
-  history: {
-    at_utc: string;
-    title: string;
-    detail: string;
-    operation: string;
-    status: "ok" | "paused" | "error";
-    attempt: number;
-    latency_ms: number | null;
-  }[];
+  history: ToolEvent[];
 }
 
 export interface WorkspaceSnapshot {

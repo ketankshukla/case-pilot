@@ -90,7 +90,9 @@ def create_app(path: Path = DEMO_DB_PATH, *, allow_binding_hosts: bool = False, 
         except ValueError as exc:
             raise read_error("invalid_data", "The fixture record is invalid. Verify or reset the demo data and try again.") from exc
         except sqlite3.DatabaseError as exc:
-            raise read_error("unavailable", "Local fixtures are unavailable. Reset the demo data and try again.") from exc
+            raise read_error(
+                "unavailable", "Local fixtures are unavailable. Upgrade the local database or reset a fresh demo.",
+            ) from exc
 
     def scoped_read(persona, operation):
         return with_fixtures(lambda db, meta: bounded_read(

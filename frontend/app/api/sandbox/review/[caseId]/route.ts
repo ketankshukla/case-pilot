@@ -25,7 +25,7 @@ function boundedInteger(value: string | null, maximum: number): number | null {
 function parseCommand(form: URLSearchParams | null) {
   if (!form) return null;
   const action = form.get("action");
-  if (action === "prepare") return { action };
+  if (action === "prepare" || action === "record_run") return { action };
   if (action === "reconcile") {
     const execution_id = form.get("execution_id");
     return execution_id && operationId.test(execution_id) ? { action, execution_id } : null;
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       redirect: "error",
       signal: AbortSignal.timeout(20_000),
     });
-    if (result.ok) return redirect();
+    if (result.ok) return redirect(command.action === "record_run" ? "run-saved" : undefined);
     if (result.status === 401 || result.status === 403) return redirect("sign-in");
     if (result.status === 400 || result.status === 422) return redirect("invalid");
     if (result.status === 409) {

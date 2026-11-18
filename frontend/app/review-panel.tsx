@@ -161,6 +161,7 @@ export function LocalReview({ item, review, access, notice }: {
       </div>
 
       {noticeText ? <p role="alert" className="review-error">{noticeText}</p> : null}
+      {notice === "run-saved" ? <p role="status">Investigation saved to the <a href="#saved-audit">local audit trail</a>.</p> : null}
       {saved?.review?.reason ? <p className="muted">Denial reason · {saved.review.reason}</p> : null}
       {execution && !receipt ? (
         <div className="review-outcome">
@@ -185,6 +186,11 @@ export function LocalReview({ item, review, access, notice }: {
       {access === "signed-in" && review && canPrepare ? (
         <ReviewForm caseId={item.case_id} action="prepare">
           <button className="review-primary" type="submit">{saved ? "Prepare new revision" : "Prepare for review"}</button>
+        </ReviewForm>
+      ) : null}
+      {access === "signed-in" && review ? (
+        <ReviewForm caseId={item.case_id} action="record_run">
+          <button type="submit">Save investigation to audit</button>
         </ReviewForm>
       ) : null}
       {access === "signed-in" && saved ? <ReviewActions item={item} saved={saved} /> : null}

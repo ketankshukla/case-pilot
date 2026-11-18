@@ -144,3 +144,20 @@ Follow the [local reviewer walkthrough](../README.md#local-reviewer-walkthrough)
 Reproduced the missing setup guidance on signed-out SC01. The sign-in form now shows the exact PowerShell command to open the local key file, a copy button for the command, and the line to look for. The form continues to verify the locally configured reviewer key.
 
 All 29 backend tests and the production build passed. Edge verified the command, clipboard feedback, mobile layout, and sign-in. The credential stayed out of the rendered page.
+
+## 2026-11-18 · Checkpoint 4, audit and Stage 1 evaluation
+
+- **Run history → Saved audit trail** shows saved replay decisions and tool results alongside reviewer decisions, state transitions, operation IDs, and hashed retry identities. Preparing a proposal saves the replay used for that revision. A reviewer can also save a blocked or incomplete investigation without preparing an action.
+- Added separate adversarial fixtures and tests for the missing Stage 1 branches. The actual `stage1-v3` database upgraded to `stage1-v4` with its prior reviews, actions, receipts, and audit records preserved.
+- **Passing** · 43 backend tests across all 31 required acceptance checks, plus the Next.js production build. The [evaluation matrix](EVALUATION.md) records each test and the deferred checks.
+- **Passing** · Edge verified scoped candidate selection prompts, saved audit records after refresh, reviewer request protection, safe text rendering, reconciliation of the original operation ID, and mobile fit.
+- Both [architecture and decision flows](FLOWS.md) parsed and rendered locally. The [Stage 1 guide](STAGE1.md) includes the specification, decisions, and five-minute walkthrough.
+
+### Review
+
+1. Open **SC05** and its two-candidate variant. Check that the desk asks for clarification.
+2. Open **SC07** and save the missing-evidence investigation. Expand it in **Saved audit trail** and check the policy status and tool results.
+3. Run **SC13** with **Timeout after commit**. Reconcile it and compare the operation ID in the audit and receipt.
+4. Review the scenario matrix and flow diagrams against the behavior you observed.
+
+The hosted desk remains read-only. Replay uses zero model-provider calls. The next decision is whether to accept Stage 1 after reviewing the local walkthrough and test evidence.

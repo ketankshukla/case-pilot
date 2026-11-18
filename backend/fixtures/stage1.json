@@ -1,5 +1,5 @@
 {
-  "fixture_version": "stage1-v3",
+  "fixture_version": "stage1-v4",
   "clock_utc": "2026-11-18T12:00:00Z",
   "orders": [
     {
@@ -69,6 +69,27 @@
       "lines": [{"line_id": "A", "paid_cents": 5000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 1}]
     },
     {
+      "order_id": "O319", "customer_id": "C100", "version": 1,
+      "paid_cents": 5000, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": null, "used": null, "return_received": false,
+      "promised_on": "2026-11-10", "shipment_status": "unknown",
+      "lines": [{"line_id": "A", "paid_cents": 5000, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 1}]
+    },
+    {
+      "order_id": "O505", "customer_id": "C100", "version": 1, "support_reference": "GAME-47LM",
+      "paid_cents": 3200, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": "2026-11-12", "used": false, "return_received": false,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 3200, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
+      "order_id": "O506", "customer_id": "C100", "version": 1, "support_reference": "GAME-47LM",
+      "paid_cents": 3300, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": "2026-11-12", "used": false, "return_received": false,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 3300, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
       "order_id": "O707", "customer_id": "C100", "version": 1,
       "paid_cents": 9000, "currency": "USD", "settled": true, "product": "limited_edition", "region": "US",
       "delivered_on": "2026-11-08", "used": false, "return_received": true,
@@ -95,6 +116,20 @@
       "delivered_on": "2026-11-13", "used": false, "return_received": true,
       "promised_on": null, "shipment_status": "delivered",
       "lines": [{"line_id": "A", "paid_cents": 6500, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
+      "order_id": "O905", "customer_id": "C200", "version": 1, "support_reference": "GAME-47LM",
+      "paid_cents": 3600, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": "2026-11-12", "used": false, "return_received": false,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 3600, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
+    },
+    {
+      "order_id": "O906", "customer_id": "C200", "version": 1, "support_reference": "GAME-82RT",
+      "paid_cents": 3700, "currency": "USD", "settled": true, "product": "board_games", "region": "US",
+      "delivered_on": "2026-11-12", "used": false, "return_received": false,
+      "promised_on": null, "shipment_status": "delivered",
+      "lines": [{"line_id": "A", "paid_cents": 3700, "quantity": 1, "damage_declaration_complete": false, "replacement_stock": 0}]
     }
   ],
   "policies": [
@@ -128,6 +163,18 @@
       "case_id": "CP-0105", "customer_id": "C100", "scenario_id": "SC05",
       "title": "Damaged game with no order ID", "intent": "damage_refund", "order_id": null,
       "request": "My game arrived damaged. Please help."
+    },
+    {
+      "case_id": "CP-0105-B", "customer_id": "C100", "scenario_id": "SC05",
+      "title": "Two orders match one reference", "intent": "damage_refund", "order_id": null,
+      "support_reference": "GAME-47LM",
+      "request": "My game arrived damaged. I have the reference GAME-47LM."
+    },
+    {
+      "case_id": "CP-0105-C", "customer_id": "C100", "scenario_id": "SC05",
+      "title": "No orders match the reference in this account", "intent": "damage_refund", "order_id": null,
+      "support_reference": "GAME-82RT",
+      "request": "Can you find my order using the reference GAME-82RT?"
     },
     {
       "case_id": "CP-0107", "customer_id": "C100", "scenario_id": "SC07",
@@ -173,6 +220,11 @@
       "case_id": "CP-0118-B", "customer_id": "C100", "scenario_id": "SC18",
       "title": "Replacement for a checked lost shipment", "intent": "delay_replace", "order_id": "O318", "line_id": "A",
       "request": "Please check the O318 shipment and request a replacement if it was lost."
+    },
+    {
+      "case_id": "CP-0118-C", "customer_id": "C100", "scenario_id": "SC18",
+      "title": "Replacement awaiting a shipment check", "intent": "delay_replace", "order_id": "O319", "line_id": "A",
+      "request": "Please request a replacement for O319. I still have no shipment update."
     }
   ]
 }

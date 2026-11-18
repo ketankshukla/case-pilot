@@ -13,6 +13,7 @@ CustomerId = Annotated[str, Field(pattern=r"^C[0-9]{3,10}$")]
 LineId = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9]{0,11}$")]
 Product = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]
 Region = Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
+SupportReference = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9-]{3,39}$")]
 Cents = Annotated[int, Field(ge=0)]
 ReadErrorCode = Literal["not_found", "missing_information", "invalid_data", "timeout", "unavailable"]
 
@@ -87,6 +88,7 @@ class PolicyPassage(ReadModel):
     rule_key: str
     product: Product
     region: Region
+    source_kind: Literal["curated", "adversarial_fixture"] = "curated"
 
     _check_days = field_validator("effective_date", "expires_on")(validate_day)
 
@@ -108,6 +110,7 @@ class ReplacementEntry(ReadModel):
 
 
 LINES = TypeAdapter(list[LineFacts])
+ORDER_IDS = TypeAdapter(list[OrderId])
 REFUND_ENTRIES = TypeAdapter(list[RefundEntry])
 REPLACEMENT_ENTRIES = TypeAdapter(list[ReplacementEntry])
 SEARCH_QUERIES: dict[Intent, str] = {
@@ -170,6 +173,20 @@ class DemoReads:
     def order(self, order_id: str) -> OrderFacts:
         order, _ = self._load_order(order_id)
         return order
+
+    def order_candidates(self, reference: SupportReference) -> list[OrderId]:
+        rows = self.db.execute(
+            """
+            SELECT order_id FROM orders
+            WHERE customer_id = ? AND json_extract(record, '$.support_reference') = ?
+            ORDER BY order_id LIMIT 2
+            """,
+            (self.customer_id, reference),
+        )
+        try:
+            return ORDER_IDS.validate_python([row["order_id"] for row in rows], strict=True)
+        except ValidationError as exc:
+            raise ReadError("invalid_data", "The matching order references could not be verified.") from exc
 
     def line(self, order_id: str, line_id: str) -> LineFacts:
         _, record = self._load_order(order_id)
@@ -323,12 +340,13 @@ class DemoReads:
             passages = [PolicyPassage.model_validate_json(row["record"]) for row in rows]
         except ValidationError as exc:
             raise ReadError("invalid_data", "The policy passages could not be verified.") from exc
+        usable = [passage for passage in passages if passage.source_kind == "curated"]
         rules = {
-            topic: {passage.rule_key for passage in passages if passage.topic == topic}
+            topic: {passage.rule_key for passage in usable if passage.topic == topic}
             for topic in required
         }
         if any(len(values) > 1 for values in rules.values()):
             return EvidenceResult(status="conflicting", passages=passages)
         if any(rule_key not in rules[topic] for topic, rule_key in required.items()):
             return EvidenceResult(status="missing", passages=passages)
-        return EvidenceResult(status="available", passages=passages)
+        return EvidenceResult(status="available", passages=usable)

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { LocalReview, remedyLabels, SavedReviewStatus } from "./review-panel";
 import type { ReviewerAccess } from "./reviewer-session";
-import type { CaseState, CaseSummary, DemoCase, ReviewSnapshot, WorkspaceSnapshot } from "./workspace";
+import type { CaseState, CaseSummary, DemoCase, ReviewSnapshot, ToolEvent, WorkspaceSnapshot } from "./workspace";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const utcDateTime = new Intl.DateTimeFormat("en-US", {
@@ -20,6 +20,12 @@ const runStatusLabels: Record<DemoCase["history"][number]["status"], string> = {
   ok: "Succeeded",
   paused: "Paused",
   error: "Error",
+};
+const evidenceLabels: Record<DemoCase["evidence_status"], string> = {
+  available: "Approved evidence available",
+  missing: "Missing approved evidence",
+  conflicting: "Conflicting policies",
+  not_checked: "Policy search pending",
 };
 
 function UtcTime({ value }: { value: string }) {
@@ -99,6 +105,9 @@ function CaseWorkspace({ item, hasSavedReview }: { item: DemoCase; hasSavedRevie
         <div className="missing-info">
           <h3>Missing information</h3>
           <ul>{item.missing_information.map((detail) => <li key={detail}>{detail}</li>)}</ul>
+          {item.candidate_order_ids?.length ? (
+            <p>Authorized order candidates · {item.candidate_order_ids.join(", ")}</p>
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -128,7 +137,7 @@ function Evidence({ passages, status }: { passages: DemoCase["evidence"]; status
             return (
               <li className="evidence-item" id={anchor} key={anchor} tabIndex={-1}>
                 <h3>{passage.title}</h3>
-                <p className="evidence-meta">{passage.source_id} · v{passage.version} · Effective <time dateTime={passage.effective_date}>{passage.effective_date}</time> · {passage.approval_status}</p>
+                <p className="evidence-meta">{passage.source_id} · v{passage.version} · Effective <time dateTime={passage.effective_date}>{passage.effective_date}</time> · {passage.source_kind === "adversarial_fixture" ? "Adversarial fixture · excluded from evidence" : passage.approval_status}</p>
                 <blockquote>{passage.excerpt}</blockquote>
               </li>
             );
@@ -190,40 +199,85 @@ function ActionPreview({ item, review, access, notice }: {
   );
 }
 
-function History({ events, reviewEvents }: { events: DemoCase["history"]; reviewEvents?: ReviewSnapshot["events"] }) {
+function ToolTimeline({ events }: { events: ToolEvent[] }) {
+  if (!events.length) return <p className="muted">No tool results for this investigation.</p>;
+  return (
+    <ol className="timeline">
+      {events.map((event) => (
+        <li key={`${event.at_utc}-${event.operation}-${event.attempt}-${event.title}`} data-status={event.status}>
+          <h4>{event.title}</h4>
+          <div className="timeline-meta">
+            <span>{runStatusLabels[event.status]}</span>
+            {event.attempt > 1 ? <span>Attempt {event.attempt}</span> : null}
+            {event.latency_ms !== null ? <span>{event.latency_ms} ms</span> : null}
+            <UtcTime value={event.at_utc} />
+          </div>
+          <p>{event.detail}</p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function SavedAudit({ review }: { review: ReviewSnapshot }) {
+  return (
+    <section className="review-history" id="saved-audit" aria-labelledby="saved-audit-heading" tabIndex={-1}>
+      <h3 id="saved-audit-heading">Saved audit trail</h3>
+      <p className="timeline-meta">{review.scenario_id} · {review.case_id}</p>
+      {review.runs.length || review.events.length ? null : (
+        <p className="muted">Save an investigation or prepare a proposal to start this case’s audit trail.</p>
+      )}
+      {review.runs.length ? (
+        <div className="audit-group">
+          <h4>Saved investigations</h4>
+          {review.runs.map((run) => (
+            <details className="audit-detail" key={run.run_id}>
+              <summary>{statusLabels[run.state]} · <UtcTime value={run.at_utc} /></summary>
+              <dl className="action-facts audit-facts">
+                <div><dt>Run ID</dt><dd className="review-id">{run.run_id}</dd></div>
+                <div><dt>Recorded by</dt><dd>{run.actor}</dd></div>
+                <div><dt>Mode and fixture</dt><dd>Replay · {run.fixture_version}</dd></div>
+                <div><dt>Order version</dt><dd>{run.order_version === null ? "Unavailable" : `v${run.order_version}`}</dd></div>
+                {run.proposal_revision === null ? null : <div><dt>Proposal</dt><dd>Revision {run.proposal_revision}</dd></div>}
+                <div><dt>Policy status</dt><dd>{evidenceLabels[run.evidence_status]}</dd></div>
+                {run.evidence.length ? <div><dt>Sources checked</dt><dd>{run.evidence.map(p => `${p.source_id} v${p.version}`).join(", ")}</dd></div> : null}
+                <div><dt>Run duration</dt><dd>{run.latency_ms} ms · {run.provider_calls} provider calls</dd></div>
+              </dl>
+              <p>{run.decision_summary}</p>
+              <ToolTimeline events={run.tools} />
+            </details>
+          ))}
+        </div>
+      ) : null}
+      {review.events.length ? (
+        <div className="audit-group">
+          <h4>Review and execution</h4>
+          {review.events.map((event) => (
+            <details className="audit-detail" key={event.event_id}>
+              <summary className="review-operation">{event.operation.replace(/[._-]+/g, " ")}</summary>
+              <div className="timeline-meta"><span>{event.actor}</span><UtcTime value={event.at_utc} /></div>
+              <p>{event.detail}</p>
+              <dl className="action-facts audit-facts">
+                <div><dt>Revision</dt><dd>{event.revision}</dd></div>
+                <div><dt>State</dt><dd>{event.before_state?.replaceAll("_", " ") ?? "new"} → {event.after_state.replaceAll("_", " ")}</dd></div>
+                {event.execution_id ? <div><dt>Operation ID</dt><dd className="review-id">{event.execution_id}</dd></div> : null}
+                {event.idempotency_identity ? <div><dt>Retry identity</dt><dd className="review-id">{event.idempotency_identity}</dd></div> : null}
+              </dl>
+            </details>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function History({ events, review }: { events: ToolEvent[]; review: ReviewSnapshot | null }) {
   return (
     <section className="panel" aria-labelledby="history-heading">
       <h2 id="history-heading">Run history</h2>
-      {events.length ? (
-        <ol className="timeline">
-          {events.map((event) => (
-            <li key={`${event.at_utc}-${event.operation}-${event.attempt}-${event.title}`} data-status={event.status}>
-              <h3>{event.title}</h3>
-              <div className="timeline-meta">
-                <span>{runStatusLabels[event.status]}</span>
-                {event.attempt > 1 ? <span>Attempt {event.attempt}</span> : null}
-                {event.latency_ms !== null ? <span>{event.latency_ms} ms</span> : null}
-                <UtcTime value={event.at_utc} />
-              </div>
-              <p>{event.detail}</p>
-            </li>
-          ))}
-        </ol>
-      ) : <p className="muted">Run history is empty.</p>}
-      {reviewEvents?.length ? (
-        <div className="review-history">
-          <h3>Local review audit</h3>
-          <ol className="timeline">
-            {reviewEvents.map((event, index) => (
-              <li key={`${event.at_utc}-${event.operation}-${index}`}>
-                <h3 className="review-operation">{event.operation.replace(/[._-]+/g, " ")}</h3>
-                <div className="timeline-meta"><span>{event.actor}</span><UtcTime value={event.at_utc} /></div>
-                <p>{event.detail}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
+      <h3>Current replay</h3>
+      <ToolTimeline events={events} />
+      {review ? <SavedAudit review={review} /> : null}
     </section>
   );
 }
@@ -255,7 +309,7 @@ export function CaseDesk({ workspace, selectedCase, investigation, review, acces
                 </div>
                 <div className="case-column action-column">
                   <ActionPreview item={investigation} review={review} access={access} notice={notice} />
-                  <History events={investigation.history} reviewEvents={review?.events} />
+                  <History events={investigation.history} review={review} />
                 </div>
               </>
             ) : (
