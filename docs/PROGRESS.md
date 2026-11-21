@@ -167,3 +167,11 @@ The hosted desk remains read-only. Replay uses zero model-provider calls. The ne
 - Reused eight fictional Stage 1 cases and rewrote their requests in everyday language. The [Stage 2 evaluation setup](STAGE2_EVALUATION.md) defines decision, evidence, and customer-reply points, plus a separate hard-fail gate.
 - Verified that all eight requests map to their source fixtures and scoring rows. The 43 Stage 1 backend tests and the production build passed.
 - Setup cost was $0 in model API spend. Model calls and scores are pending. Review the cases and scoring rules before agreeing on a provider and spending cap.
+
+## 2026-11-21 · Stage 2 first Codex evaluation
+
+- Ran all eight approved cases once using GPT-6.1 Terra with low reasoning effort through the local Codex CLI signed in to ChatGPT Pro. Each case used a fresh, read-only session with scoped fictional fixture evidence. Model API spend was $0.
+- Scored **19/24** under the agreed rubric, with **6/8 decisions**, **8/8 evidence points**, **5/8 customer replies**, and **zero hard failures**. The run missed the pilot gate. E02 missed the direct order-choice question. E05 gave a $20 ceiling without committing to that amount in its recommendation.
+- The [run record](STAGE2_EVALUATION.md#first-run--2026-11-21) includes the eight first answers, scores, scoped reads, and token usage. This run evaluated recommendations and drafts. CasePilot's runtime integration and the model's own retrieval choices remain unevaluated.
+- Verified the eight saved answers against the Codex output and checked the scoring totals. All 43 backend tests and the Next.js production build passed.
+- **Review checkpoint** · Review the deductions before deciding whether to revise the output instructions and run a second evaluation.
