@@ -161,3 +161,9 @@ All 29 backend tests and the production build passed. Edge verified the command,
 4. Review the scenario matrix and flow diagrams against the behavior you observed.
 
 The hosted desk remains read-only. Replay uses zero model-provider calls. The next decision is whether to accept Stage 1 after reviewing the local walkthrough and test evidence.
+
+## 2026-11-21 · Stage 2 evaluation setup
+
+- Reused eight fictional Stage 1 cases and rewrote their requests in everyday language. The [Stage 2 evaluation setup](STAGE2_EVALUATION.md) defines decision, evidence, and customer-reply points, plus a separate hard-fail gate.
+- Verified that all eight requests map to their source fixtures and scoring rows. The 43 Stage 1 backend tests and the production build passed.
+- Setup cost was $0 in model API spend. Model calls and scores are pending. Review the cases and scoring rules before agreeing on a provider and spending cap.
