@@ -175,3 +175,11 @@ The hosted desk remains read-only. Replay uses zero model-provider calls. The ne
 - The [run record](STAGE2_EVALUATION.md#first-run--2026-11-21) includes the eight first answers, scores, scoped reads, and token usage. This run evaluated recommendations and drafts. CasePilot's runtime integration and the model's own retrieval choices remain unevaluated.
 - Verified the eight saved answers against the Codex output and checked the scoring totals. All 43 backend tests and the Next.js production build passed.
 - **Review checkpoint** · Review the deductions before deciding whether to revise the output instructions and run a second evaluation.
+
+## 2026-11-21 · Stage 2 revised-prompt evaluation
+
+- Added shared prompt instructions to make the model ask about the specific matching orders, propose a single exact refund amount, explain conflicting guidance in the reply, and decline requests for unscoped orders. The [second run record](STAGE2_EVALUATION.md#second-run--2026-11-21) contains the exact additions, scores, first answers, and usage.
+- Ran all eight cases once through GPT-6.1 Terra on the ChatGPT Pro sign-in. Verified the request and evidence payloads and response schema matched the first run. No paid API calls, tool calls, or retries occurred.
+- Scored **22/24**, with **7/8 decisions**, **8/8 evidence points**, **7/8 customer replies**, and **zero hard failures**. E02, E04, E05, and E07 recovered all five missed points. E06 lost two points because the answer omitted the outstanding shipment check in both the decision and reply. The gate still requires eight correct decisions.
+- Verified the eight saved answers and scoring totals. All 43 backend tests and the Next.js production build passed.
+- **Review checkpoint** · Review the E06 deduction and the revised prompt. This run repeated the eight pilot cases after tuning on their results. Performance on new cases and a live CasePilot integration remains unevaluated.
